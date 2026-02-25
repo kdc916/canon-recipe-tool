@@ -95,13 +95,3 @@ https://kdc916.github.io/canon-recipe-tool/
 
 ---
 
-## 📦 Run Locally
-### Option A) Just open (quick)
-- Open `index.html` directly in a modern browser  
-  *(Some browsers may restrict certain features when opened as a file.)*
-
-### Option B) Local server (recommended)
-```bash
-# Python 3
-python -m http.server 5173
-# then open: http://localhost:5173
