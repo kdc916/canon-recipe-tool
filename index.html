@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Canon Recipe & Fuji Preset Overlay (v9.0 FINAL)</title>
+  <title>Canon Recipe & Fuji Preset Overlay (v9.1 PATCHED FINAL)</title>
 
   <!-- AI (옵션 / 자동 모드에서만 사용) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
@@ -277,7 +277,7 @@
   <div class="app">
     <div class="header">
       <div class="title">
-        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.0 FINAL</span></h1>
+        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.1 PATCHED</span></h1>
         <p>
           ✅ <b>1장(타겟만) / 2장(원본+타겟)</b> 지원 · ✅ AI 자동(선택) · ✅ <b>Fuji Preset Overlay(B안)</b><br/>
           “후지 룩을 캐논 PSE로?” → <b>분석 결과에 프리셋 감성을 ‘오버레이’</b> 하는 방식이 가장 안전하고 그럴듯합니다.
@@ -629,9 +629,17 @@ function updateStrengthLabel(){
   document.getElementById("strengthLabel").textContent = v + "%";
 }
 
+function setStrengthEnabled(enabled){
+  const s = document.getElementById("presetStrength");
+  s.disabled = !enabled;
+  s.style.opacity = enabled ? "1" : "0.5";
+}
+
 function updatePresetLabel(){
   const key = document.getElementById("fujiPreset").value;
   document.getElementById("presetLabel").textContent = (key === "off") ? "OFF" : ("ON: " + FUJI_PRESETS[key].name);
+  // PATCH: Off일 때 강도 슬라이더 비활성화
+  setStrengthEnabled(key !== "off");
 }
 
 document.getElementById("fujiPreset").addEventListener("change", ()=>{
@@ -727,22 +735,53 @@ function refreshReady(){
 
 /* =========================================================
    이미지 디코드 + 리사이즈
+   PATCH: createImageBitmap 실패 fallback 추가
 ========================================================= */
-async function decodeToImageBitmap(file){
-  // createImageBitmap(file)이 가장 빠르고 안정적
-  return await createImageBitmap(file);
+async function fileToHTMLImage(file){
+  return await new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = (e)=>{
+      URL.revokeObjectURL(url);
+      reject(e);
+    };
+    img.src = url;
+  });
 }
-function drawScaledToImageData(bitmap, maxDim){
-  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-  const tw = Math.max(1, Math.round(bitmap.width * scale));
-  const th = Math.max(1, Math.round(bitmap.height * scale));
+
+async function decodeToImageBitmap(file){
+  // try createImageBitmap first
+  try{
+    if(typeof createImageBitmap === "function"){
+      return await createImageBitmap(file);
+    }
+    throw new Error("createImageBitmap not available");
+  }catch(e){
+    // fallback to HTMLImageElement
+    console.warn("createImageBitmap 실패 → fallback(Image):", e);
+    return await fileToHTMLImage(file);
+  }
+}
+
+function drawScaledToImageData(bitmapOrImg, maxDim){
+  const w = bitmapOrImg.width;
+  const h = bitmapOrImg.height;
+
+  const scale = Math.min(1, maxDim / Math.max(w, h));
+  const tw = Math.max(1, Math.round(w * scale));
+  const th = Math.max(1, Math.round(h * scale));
+
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d", {willReadFrequently:true});
   canvas.width = tw; canvas.height = th;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0,0,tw,th);
-  ctx.drawImage(bitmap, 0,0,tw,th);
+  ctx.drawImage(bitmapOrImg, 0,0,tw,th);
   return ctx.getImageData(0,0,tw,th);
 }
 
@@ -809,7 +848,7 @@ function applyFujiOverlay(analysis, presetKey, strength01){
   });
 
   // 4) Base: 텍스트는 “분석 추천”을 우선 유지하되, 프리셋 켰으면 "분석 + 프리셋" 형태로 표시
-  const outBase = analysis.base; // 기본은 분석 추천
+  const outBase = analysis.base;
   const baseHint = `${analysis.base} + ${p.name} ${Math.round(strength01*100)}%`;
 
   return {
@@ -825,8 +864,6 @@ function applyFujiOverlay(analysis, presetKey, strength01){
 
 /* =========================================================
    Worker (1장/2장 모두 지원)
-   - 2장: orig→ref CDF 매칭 + 색축 비교
-   - 1장: orig 없음 → "중립 기준" (균등 히스토그램 + 축 기준치) 대비로 계산
 ========================================================= */
 function initWorker(){
   if(worker) return;
@@ -873,7 +910,6 @@ function initWorker(){
     }
 
     function uniformHist(){
-      // 256 bins equal probability
       const hist = new Uint32Array(256);
       for(let i=0;i<256;i++) hist[i]=1;
       return {hist,total:256,tooDark:0,tooBright:0};
@@ -894,7 +930,6 @@ function initWorker(){
         while(j<255 && cdfR[j] < p) j++;
         lut[i]=j;
       }
-      // monotonic already
       return lut;
     }
 
@@ -941,11 +976,9 @@ function initWorker(){
         const hsl = rgbToHsl(r,g,b);
         let h=hsl[0], s=hsl[1], l=hsl[2];
 
-        // filter
         if(s < 0.08) continue;
         if(l < 0.06 || l > 0.94) continue;
 
-        // axis bucket
         let k='M';
         if(h>=340 || h<20) k='R';
         else if(h>=20 && h<80) k='Y';
@@ -968,10 +1001,8 @@ function initWorker(){
         bk.count++;
         valid++;
 
-        // overall sat + (green-magenta-ish) tone proxy
         sumS += s;
-        // very rough: map hue around 300~60 as "magenta bias", 120~240 as "green/cyan bias"
-        sumTone += Math.sin(rad); // [-1..1] proxy
+        sumTone += Math.sin(rad);
         toneN++;
       }
 
@@ -994,7 +1025,6 @@ function initWorker(){
     }
 
     function baseRecommend(mode, aiType, axesR, totalColored, contrast){
-      // mode(수동) 우선
       if(mode !== "auto"){
         if(mode==="portrait") return {base:"인물사진 (Portrait)", reason:"수동 모드(인물) 선택"};
         if(mode==="landscape") return {base:"풍경사진 (Landscape)", reason:"수동 모드(풍경) 선택"};
@@ -1003,11 +1033,9 @@ function initWorker(){
         return {base:"표준 (Standard)", reason:"수동 모드"};
       }
 
-      // auto: AI 우선
       if(aiType==="portrait") return {base:"인물사진 (Portrait)", reason:"AI: 얼굴 감지"};
       if(aiType==="landscape") return {base:"풍경사진 (Landscape)", reason:"AI: 풍경 감지"};
 
-      // fallback: 색상 분포
       if(totalColored < 1500) return {base:"모노크롬 (Monochrome)", reason:"유효 색상 데이터가 매우 적음"};
       if((axesR.R.count + axesR.Y.count) > totalColored*0.55) return {base:"인물사진 (Portrait)", reason:"R/Y 비중이 큼"};
       if((axesR.G.count + axesR.B.count + axesR.C.count) > totalColored*0.45) return {base:"풍경사진 (Landscape)", reason:"G/B/C 비중이 큼"};
@@ -1025,12 +1053,10 @@ function initWorker(){
       const cdfO = cdfFromHist(o.hist, o.total);
       let lut = buildToneLUTByCDFMatch(cdfO, cdfR);
 
-      // lift
       const rP02 = percentileByHist(r.hist, r.total, 0.02);
       const lift = applyBlackLiftCompensation(lut, rP02);
       lut = lift.lut;
 
-      // contrast from p95-p05
       const oP05 = percentileByHist(o.hist, o.total, 0.05);
       const oP95 = percentileByHist(o.hist, o.total, 0.95);
       const rP05 = percentileByHist(r.hist, r.total, 0.05);
@@ -1039,20 +1065,17 @@ function initWorker(){
       const rRange = Math.max(1, rP95 - rP05);
       let contrast = clamp(Math.round(((rRange/oRange)-1)*6), -4, 4);
 
-      // color axes
       const cR = getColorAxesDataWeighted(refRGBA);
       const axesR = cR.axes;
 
-      // "orig" color reference:
-      // - 2장: orig의 축
-      // - 1장: 중립 축(각 축 중심 H, S=0.5, L=0.5)로 둔다
+      // PATCH(보수화): 1장 모드 중립 S를 0.42로
       const axesO = hasOrig ? getColorAxesDataWeighted(origRGBA).axes : {
-        R:{H:0,S:0.50,L:0.50,count:9999},
-        Y:{H:60,S:0.50,L:0.50,count:9999},
-        G:{H:120,S:0.50,L:0.50,count:9999},
-        C:{H:180,S:0.50,L:0.50,count:9999},
-        B:{H:240,S:0.50,L:0.50,count:9999},
-        M:{H:300,S:0.50,L:0.50,count:9999},
+        R:{H:0,S:0.42,L:0.50,count:9999},
+        Y:{H:60,S:0.42,L:0.50,count:9999},
+        G:{H:120,S:0.42,L:0.50,count:9999},
+        C:{H:180,S:0.42,L:0.50,count:9999},
+        B:{H:240,S:0.42,L:0.50,count:9999},
+        M:{H:300,S:0.42,L:0.50,count:9999},
       };
 
       const keys = ['R','Y','G','C','B','M'];
@@ -1064,16 +1087,13 @@ function initWorker(){
         const rA = axesR[k];
         const oA = axesO[k];
 
-        // 안정 장치: ref count가 너무 적으면 과한 튀는 값 방지
         const countR = rA.count || 0;
         const reliability = clamp(Math.sqrt(countR / 2000), 0.20, 1.0);
 
-        const diffH = circularHueDiff(rA.H, oA.H);          // degrees
-        const diffS = (rA.S - oA.S) * 100;                  // -100..100
-        const diffL = (rA.L - oA.L) * 100;                  // -100..100
+        const diffH = circularHueDiff(rA.H, oA.H);
+        const diffS = (rA.S - oA.S) * 100;
+        const diffL = (rA.L - oA.L) * 100;
 
-        // Canon PSE 기준으로 “대부분 -3~+5 나오는 게 정상”이 되도록 스케일링(=현실적인 움직임)
-        // (원하면 더 크게 움직이게 스케일만 조절하면 됨)
         const canonH = clamp(Math.round((diffH/6.0) * reliability), -30, 30);
         const canonS = clamp(Math.round((diffS/10.0) * reliability), -30, 30);
         const canonL = clamp(Math.round((diffL/10.0) * reliability), -30, 30);
@@ -1086,16 +1106,11 @@ function initWorker(){
         });
       }
 
-      // Basic: Saturation / ColorTone (간단 추정)
-      // sat: avgS(0~1)을 0.5 기준으로 -4..+4
       let sat = clamp(Math.round((cR.avgS - 0.45) * 10), -4, 4);
-      // tone: avgTone(-1..1)을 -4..+4
       let tone = clamp(Math.round(cR.avgTone * 4), -4, 4);
 
-      // Base 추천
       const baseRec = baseRecommend(mode, aiType, axesR, cR.validColored, contrast);
 
-      // warnings
       const warnings = [];
       const darkRatio = r.tooDark / r.total;
       const brightRatio = r.tooBright / r.total;
@@ -1130,7 +1145,6 @@ async function detectAiType(){
   if(userMode !== "auto") return {type:"manual", note:"수동"};
   if(!faceModel || !classifyModel) return {type:"fallback", note: aiStatusText};
 
-  // 타겟 이미지는 이미 canvas에 그려져있다고 가정
   const canvas = document.getElementById("canvas");
   try{
     const faces = await faceModel.estimateFaces(canvas, false);
@@ -1149,13 +1163,13 @@ async function detectAiType(){
 
 /* =========================================================
    분석 메인
+   PATCH: 2장 모드에서도 AI가 "타겟(ref)"을 보고 판별하도록 순서 수정
 ========================================================= */
 async function analyzeAll(){
   const btn = document.getElementById("btnAnalyze");
   const spin = document.getElementById("spin");
   const btnText = document.getElementById("btnText");
 
-  // guard
   if(!refFileState){
     alert("타겟 사진이 필요합니다.");
     return;
@@ -1174,19 +1188,20 @@ async function analyzeAll(){
   try{
     const maxDim = parseInt(document.getElementById("maxDim").value, 10);
 
-    // decode
+    // 1) 타겟(ref) 먼저 draw (canvas = ref)
     const bmR = await decodeToImageBitmap(refFileState);
     const idR = drawScaledToImageData(bmR, maxDim);
 
+    // 2) PATCH: 여기서 AI 판별(타겟을 보고 판별)
+    const ai = await detectAiType();
+    const aiType = (userMode==="auto") ? (ai.type==="manual" ? "fallback" : ai.type) : "fallback";
+
+    // 3) 2장 모드면 원본(orig)을 draw해서 idO 추출 (canvas는 덮어써도 OK)
     let idO = null;
     if(shotMode === "two"){
       const bmO = await decodeToImageBitmap(origFileState);
       idO = drawScaledToImageData(bmO, maxDim);
     }
-
-    // AI type (auto일 때만)
-    const ai = await detectAiType();
-    const aiType = (userMode==="auto") ? (ai.type==="manual" ? "fallback" : ai.type) : "fallback";
 
     // worker compute
     const refBuf = idR.data.buffer;
@@ -1225,7 +1240,8 @@ async function analyzeAll(){
 
     // Fuji overlay (B안)
     const presetKey = document.getElementById("fujiPreset").value;
-    const strength01 = parseInt(document.getElementById("presetStrength").value, 10) / 100;
+    const strength01 = (presetKey === "off") ? 0 : (parseInt(document.getElementById("presetStrength").value, 10) / 100);
+
     const analysis = {
       contrast: result.contrast,
       sat: result.sat,
@@ -1247,7 +1263,6 @@ async function analyzeAll(){
       return {x, y};
     });
 
-    const curveInline = pts.map(p=>`IN ${p.x} → OUT ${p.y}`).join(" | ");
     const curveMultiline = pts.map(p=>`IN ${p.x} → OUT ${p.y}`).join("\n");
 
     const axesText = finalRes.axes.map(a=>{
@@ -1267,9 +1282,8 @@ async function analyzeAll(){
       ? "Fuji Overlay: OFF"
       : `Fuji Overlay: ${FUJI_PRESETS[presetKey].name} (${Math.round(strength01*100)}%)`;
 
-    // summary / full text
     summaryText =
-`[Canon Picture Style Recipe - SUMMARY v9.0]
+`[Canon Picture Style Recipe - SUMMARY v9.1 PATCHED]
 - Shot: ${shotLabel}
 - Mode: ${modeLabel}
 - ${presetLabel}
@@ -1288,7 +1302,7 @@ ${axesText}
 
     fullText =
 `==================================================
- 📷 CANON PICTURE STYLE - RECIPE REPORT (v9.0 FINAL)
+ 📷 CANON PICTURE STYLE - RECIPE REPORT (v9.1 PATCHED)
 ==================================================
 * Shot: ${shotLabel}
 * Mode: ${modeLabel}
@@ -1395,7 +1409,7 @@ window.onload = ()=>{
 
   initWorker();
   updateStrengthLabel();
-  updatePresetLabel();
+  updatePresetLabel(); // PATCH: slider enable/disable 포함
 
   // default: 1장 모드
   setShot("one");
