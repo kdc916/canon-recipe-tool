@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Canon Recipe & Fuji Preset Overlay (v9.2 WB+EXIF+HEIC PATCHED FINAL)</title>
+  <title>Canon Recipe & Fuji Preset Overlay (v9.3 LazyAI+WorkerXfer+PresetUX)</title>
 
   <!-- AI (옵션 / 자동 모드에서만 사용) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
@@ -277,15 +277,15 @@
   <div class="app">
     <div class="header">
       <div class="title">
-        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.2 WB+EXIF PATCHED</span></h1>
+        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.3 LazyAI+WorkerXfer</span></h1>
         <p>
-          ✅ <b>1장(타겟만) / 2장(원본+타겟)</b> 지원 · ✅ AI 자동(선택) · ✅ <b>Fuji Preset Overlay(B안)</b><br/>
+          ✅ <b>1장(타겟만) / 2장(원본+타겟)</b> 지원 · ✅ AI 자동(선택/지연로딩) · ✅ <b>Fuji Preset Overlay(B안)</b><br/>
           ✅ <b>EXIF 회전 보정</b> · ✅ <b>HEIC 안내 강화</b> · ✅ <b>WB(켈빈/Shift) 추천</b><br/>
           “후지 룩을 캐논 PSE로?” → <b>분석 결과에 프리셋 감성을 ‘오버레이’</b> 하는 방식이 가장 안전하고 그럴듯합니다.
         </p>
       </div>
       <div class="badges">
-        <div class="badge"><span id="dotAI" class="dot warn"></span><span id="aiText">AI 로딩중</span></div>
+        <div class="badge"><span id="dotAI" class="dot warn"></span><span id="aiText">AI 미로딩 (자동 시 분석 때 로딩)</span></div>
         <div class="badge"><span id="dotO" class="dot"></span> 원본(선택)</div>
         <div class="badge"><span id="dotR" class="dot"></span> 타겟(필수)</div>
       </div>
@@ -335,7 +335,7 @@
           <div class="mini" style="margin-top:12px;">
             <b>1장 모드(타겟만)</b>는 “대략적인 후지/영화 감성 레시피”를 빠르게 얻는 용도입니다.<br/>
             <b>2장 모드</b>는 “내 원본 → 타겟” 매칭이라 더 정교합니다. (가능하면 2장 추천)<br/>
-            <b>v9.2</b>: EXIF 회전 보정으로 iPhone/모바일 사진 뒤집힘 이슈를 줄였습니다.
+            <b>v9.3</b>: AI는 <b>분석 버튼 누를 때만 로딩</b>합니다(첫 진입 속도 개선).
           </div>
         </div>
       </div>
@@ -389,13 +389,15 @@
           <div class="row">
             <div class="kv">
               <b>프리셋 강도</b>
-              <input id="presetStrength" type="range" min="0" max="100" value="35" oninput="updateStrengthLabel()"/>
+              <!-- PATCH (1): 슬라이더 움직일 때 라벨 즉시 갱신 + Ready 갱신 -->
+              <input id="presetStrength" type="range" min="0" max="100" value="35"
+                     oninput="updateStrengthLabel(); updatePresetLabel(); refreshReady();"/>
               <span class="val" id="strengthLabel">35%</span>
             </div>
           </div>
 
           <button id="btnAnalyze" class="btn primary" onclick="analyzeAll()" disabled>
-            <span id="btnText">AI 로딩중…</span>
+            <span id="btnText">사진을 넣어주세요</span>
             <span id="spin" class="spinner"></span>
           </button>
 
@@ -513,10 +515,12 @@ let summaryText = "";
 let fullText = "";
 
 let worker = null;
+
+// PATCH (3): Lazy AI states
 let faceModel = null;
 let classifyModel = null;
-let isAiReady = false;
-let aiStatusText = "AI 로딩중…";
+let aiState = "idle"; // idle | loading | ready | failed
+let aiStatusText = "AI 미로딩 (자동 시 분석 때 로딩)";
 
 /* =========================================================
    Fuji Presets (스타팅 포인트)
@@ -628,6 +632,7 @@ function setMode(mode){
   document.querySelectorAll(".chip[data-mode]").forEach(el=>{
     el.classList.toggle("active", el.dataset.mode === mode);
   });
+  refreshReady();
 }
 
 function setShot(mode){
@@ -635,7 +640,6 @@ function setShot(mode){
   document.querySelectorAll(".chip[data-shot]").forEach(el=>{
     el.classList.toggle("active", el.dataset.shot === mode);
   });
-  // 2장 모드일 때만 원본 업로더 표시
   document.getElementById("dropOrig").classList.toggle("hide", shotMode !== "two");
   refreshReady();
 }
@@ -651,21 +655,29 @@ function setStrengthEnabled(enabled){
   s.style.opacity = enabled ? "1" : "0.5";
 }
 
+/* =========================================================
+   PATCH (1): 프리셋 라벨/슬라이더 UX 안정화
+   - 프리셋 off일 때만 슬라이더 잠금
+   - 프리셋 선택돼 있으면 0%라도 조작 가능(라벨에 0% 표시)
+========================================================= */
 function updatePresetLabel(){
   const key = document.getElementById("fujiPreset").value;
   const strength = parseInt(document.getElementById("presetStrength").value, 10);
-  const isOffLike = (key === "off") || (strength === 0);
-  if(isOffLike){
+
+  if(key === "off"){
     document.getElementById("presetLabel").textContent = "OFF";
     setStrengthEnabled(false);
-  }else{
-    document.getElementById("presetLabel").textContent = "ON: " + FUJI_PRESETS[key].name;
-    setStrengthEnabled(true);
+    return;
   }
+
+  setStrengthEnabled(true);
+  const name = FUJI_PRESETS[key]?.name || "Preset";
+  document.getElementById("presetLabel").textContent = `ON: ${name} (${strength}%)`;
 }
 
 document.getElementById("fujiPreset").addEventListener("change", ()=>{
   updatePresetLabel();
+  refreshReady();
 });
 
 /* =========================================================
@@ -681,13 +693,20 @@ function isHeicFile(file){
 }
 function maybeWarnHeic(file){
   if(isHeicFile(file)){
-    alert("⚠️ HEIC/HEIF 파일은 브라우저에서 열리지 않을 수 있어요.\n가능하면 '사진 앱/공유/파일로 저장'에서 JPG로 변환 후 업로드해 주세요.");
+    alert(
+`⚠️ HEIC/HEIF 파일은 브라우저에서 열리지 않을 수 있어요.
+
+권장 해결:
+- iPhone: 설정 → 사진 → '전송 또는 저장' → '호환성 우선'
+- 또는 사진 앱에서 공유/저장 시 JPG로 변환 후 업로드
+
+가능하면 JPG로 변환 후 재시도해 주세요.`
+    );
   }
 }
 
 /* =========================================================
    PATCH 2) EXIF Orientation 읽기 (JPEG 한정 / 경량 파서)
-   - iPhone/모바일 사진 회전/미러 뒤집힘 보정
 ========================================================= */
 async function getExifOrientation(file){
   try{
@@ -696,10 +715,9 @@ async function getExifOrientation(file){
     const isJpeg = type.includes("jpeg") || type.includes("jpg") || name.endsWith(".jpg") || name.endsWith(".jpeg");
     if(!isJpeg) return 1;
 
-    const buf = await file.slice(0, 256 * 1024).arrayBuffer(); // 앞쪽만 읽어도 대부분 충분
+    const buf = await file.slice(0, 256 * 1024).arrayBuffer();
     const view = new DataView(buf);
 
-    // JPEG SOI
     if(view.getUint16(0, false) !== 0xFFD8) return 1;
 
     let offset = 2;
@@ -710,24 +728,19 @@ async function getExifOrientation(file){
       const marker = view.getUint8(offset + 1);
       offset += 2;
 
-      // EOI/SOS 이후는 중단
       if(marker === 0xD9 || marker === 0xDA) break;
 
       const segLen = view.getUint16(offset, false);
       if(segLen < 2) break;
 
-      // APP1?
       if(marker === 0xE1){
         const start = offset + 2;
-        // "Exif\0\0"
         if(start + 6 <= length){
-          const exif0 = view.getUint8(start + 0);
-          const exif1 = view.getUint8(start + 1);
-          const exif2 = view.getUint8(start + 2);
-          const exif3 = view.getUint8(start + 3);
-          const exif4 = view.getUint8(start + 4);
-          const exif5 = view.getUint8(start + 5);
-          const isExif = (exif0===0x45 && exif1===0x78 && exif2===0x69 && exif3===0x66 && exif4===0x00 && exif5===0x00);
+          const isExif =
+            view.getUint8(start+0)===0x45 && view.getUint8(start+1)===0x78 &&
+            view.getUint8(start+2)===0x69 && view.getUint8(start+3)===0x66 &&
+            view.getUint8(start+4)===0x00 && view.getUint8(start+5)===0x00;
+
           if(isExif){
             const tiff = start + 6;
             if(tiff + 8 > length) return 1;
@@ -750,22 +763,19 @@ async function getExifOrientation(file){
               const ent = ifd0 + i*12;
               if(ent + 12 > length) break;
               const tag = getU16(ent + 0);
-              if(tag === 0x0112){ // Orientation
+              if(tag === 0x0112){
                 const type = getU16(ent + 2);
                 const count = getU32(ent + 4);
                 if(type === 3 && count === 1){
                   const val = getU16(ent + 8);
                   return val || 1;
-                }else{
-                  // 다른 타입이면 무시
-                  return 1;
                 }
+                return 1;
               }
             }
           }
         }
       }
-
       offset += segLen;
     }
     return 1;
@@ -812,28 +822,39 @@ function updatePreview(file, imgEl, nameEl){
 }
 
 /* =========================================================
-   AI 로딩 (버튼에도 표시)
+   PATCH (3): AI 로딩 지연(필요 시에만)
+   - auto 모드에서 분석 버튼 눌렀을 때만 로딩
 ========================================================= */
-async function loadAIModels(){
+function setAIUI(state, text){
   const dot = document.getElementById("dotAI");
-  const text = document.getElementById("aiText");
-  const btnText = document.getElementById("btnText");
+  const label = document.getElementById("aiText");
+  aiState = state;
+  aiStatusText = text || aiStatusText;
 
+  if(state === "ready"){
+    dot.className = "dot ok";
+  }else{
+    dot.className = "dot warn";
+  }
+  label.textContent = aiStatusText;
+}
+
+async function ensureAIModelsLoaded(){
+  if(aiState === "ready") return true;
+  if(aiState === "loading") return false; // 중복 호출 방지
+
+  setAIUI("loading", "AI 로딩중…(자동 모드)");
   try{
-    btnText.textContent = "AI 로딩중…";
     await tf.ready();
     faceModel = await blazeface.load();
     classifyModel = await mobilenet.load();
-    isAiReady = true;
-    aiStatusText = "AI 준비완료";
-    dot.className = "dot ok";
-    text.textContent = "AI 준비완료";
+    setAIUI("ready", "AI 준비완료");
+    return true;
   }catch(e){
     console.warn("AI 로딩 실패(우회):", e);
-    isAiReady = true;
-    aiStatusText = "AI 실패(우회)";
-    dot.className = "dot warn";
-    text.textContent = "AI 실패(우회)";
+    // 실패해도 기능은 계속(자동은 fallback)
+    setAIUI("failed", "AI 실패(우회) · 수동/대체로 진행");
+    return false;
   }finally{
     refreshReady();
   }
@@ -841,6 +862,7 @@ async function loadAIModels(){
 
 /* =========================================================
    Ready 상태
+   - PATCH (3): AI 준비 여부로 버튼 잠그지 않음
 ========================================================= */
 function refreshReady(){
   const hasRef = !!refFileState;
@@ -854,20 +876,25 @@ function refreshReady(){
 
   const readyForShot = (shotMode === "one") ? hasRef : (hasRef && hasOrig);
 
-  if(!isAiReady){
-    btn.disabled = true;
-    btnText.textContent = "AI 로딩중…";
+  btn.disabled = !readyForShot;
+
+  if(!readyForShot){
+    btnText.textContent = "사진을 넣어주세요";
     return;
   }
 
-  btn.disabled = !readyForShot;
-  btnText.textContent = readyForShot ? "⚡ 분석 시작" : "사진을 넣어주세요";
+  // auto 모드 + AI 미로딩이면 힌트만 보여주고, 클릭 시 로딩
+  if(userMode === "auto" && aiState !== "ready"){
+    btnText.textContent = "⚡ 분석 시작 (필요 시 AI 로딩)";
+  }else{
+    btnText.textContent = "⚡ 분석 시작";
+  }
 }
 
 /* =========================================================
    이미지 디코드 + 리사이즈
    - createImageBitmap 실패 fallback
-   - PATCH 2) EXIF Orientation 보정 적용
+   - EXIF Orientation 보정 적용
 ========================================================= */
 async function fileToHTMLImage(file){
   return await new Promise((resolve, reject)=>{
@@ -898,31 +925,24 @@ async function decodeToImageBitmap(file){
 }
 
 function applyOrientationTransform(ctx, orientation, w, h){
-  // ctx는 이미 target canvas size로 세팅되어 있어야 함
-  // 참조: EXIF Orientation standard (1~8)
   switch(orientation){
-    case 2: // flip horizontal
-      ctx.translate(w, 0); ctx.scale(-1, 1); break;
-    case 3: // rotate 180
-      ctx.translate(w, h); ctx.rotate(Math.PI); break;
-    case 4: // flip vertical
-      ctx.translate(0, h); ctx.scale(1, -1); break;
-    case 5: // transpose
-      ctx.rotate(0.5*Math.PI); ctx.scale(1, -1); break;
-    case 6: // rotate 90 CW
-      ctx.translate(w, 0); ctx.rotate(0.5*Math.PI); break;
-    case 7: // transverse
-      ctx.translate(w, 0); ctx.rotate(0.5*Math.PI); ctx.scale(-1, 1); break;
-    case 8: // rotate 90 CCW
-      ctx.translate(0, h); ctx.rotate(-0.5*Math.PI); break;
-    default:
-      break;
+    case 2: ctx.translate(w, 0); ctx.scale(-1, 1); break;
+    case 3: ctx.translate(w, h); ctx.rotate(Math.PI); break;
+    case 4: ctx.translate(0, h); ctx.scale(1, -1); break;
+    case 5: ctx.rotate(0.5*Math.PI); ctx.scale(1, -1); break;
+    case 6: ctx.translate(w, 0); ctx.rotate(0.5*Math.PI); break;
+    case 7: ctx.translate(w, 0); ctx.rotate(0.5*Math.PI); ctx.scale(-1, 1); break;
+    case 8: ctx.translate(0, h); ctx.rotate(-0.5*Math.PI); break;
+    default: break;
   }
 }
 
 function drawScaledToImageData(bitmapOrImg, maxDim, orientation=1){
   const ow = bitmapOrImg.width;
   const oh = bitmapOrImg.height;
+
+  // 안정성 우선: 5/7은 기기별로 틀어질 수 있어 보수 처리
+  if(orientation === 5 || orientation === 7) orientation = 1;
 
   const swapWH = (orientation>=5 && orientation<=8);
   const rw = swapWH ? oh : ow;
@@ -942,14 +962,10 @@ function drawScaledToImageData(bitmapOrImg, maxDim, orientation=1){
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0,0,tw,th);
 
-  // orientation을 고려해 “원본을 tw/th에 맞게” 그리기 위한 변환
-  // drawImage 기준 좌표계는 변환 후에 적용되므로, 변환 케이스별로 그리는 W/H가 달라짐
   ctx.save();
   applyOrientationTransform(ctx, orientation, tw, th);
 
-  // 변환 상태에서 drawImage 크기 지정
   if(swapWH){
-    // 회전된 상태: drawImage는 (th, tw) 공간으로 들어가야 자연스럽게 맞음
     ctx.drawImage(bitmapOrImg, 0, 0, th, tw);
   }else{
     ctx.drawImage(bitmapOrImg, 0, 0, tw, th);
@@ -1033,7 +1049,8 @@ function applyFujiOverlay(analysis, presetKey, strength01){
 
 /* =========================================================
    Worker (1장/2장 모두 지원)
-   PATCH 3) 스트라이드 샘플링 + WB(K/Shift) 추천 계산 추가
+   - 스트라이드 샘플링 + WB(K/Shift) 추천 계산 포함
+   - PATCH (2): ArrayBuffer 전송 최적화에 맞춘 수신 방식
 ========================================================= */
 function initWorker(){
   if(worker) return;
@@ -1059,13 +1076,11 @@ function initWorker(){
       return [h*360, s, l];
     }
 
-    // sRGB -> linear
     function srgbToLin(u){
       u/=255;
       return (u <= 0.04045) ? (u/12.92) : Math.pow((u+0.055)/1.055, 2.4);
     }
 
-    // linear RGB -> XYZ (D65) (sRGB primaries)
     function linRgbToXyz(lr,lg,lb){
       const X = lr*0.4124564 + lg*0.3575761 + lb*0.1804375;
       const Y = lr*0.2126729 + lg*0.7151522 + lb*0.0721750;
@@ -1073,15 +1088,12 @@ function initWorker(){
       return [X,Y,Z];
     }
 
-    // McCamy approx CCT from xy
     function xyToCct(x,y){
-      // avoid div0
       const n = (x - 0.3320) / (y - 0.1858 + 1e-9);
       const cct = 449*n*n*n + 3525*n*n + 6823.3*n + 5520.33;
       return cct;
     }
 
-    // tint proxy: deviation in u,v from D65 white (not perfect; practical heuristic)
     function xyToUv(x,y){
       const denom = (-2*x + 12*y + 3);
       const u = (4*x) / (denom + 1e-9);
@@ -1089,25 +1101,17 @@ function initWorker(){
       return [u,v];
     }
 
-    // WB Shift heuristic to Canon A/B & G/M steps (rough)
     function wbShiftFromUv(u,v){
-      // D65 u,v approx
       const u0 = 0.1978398, v0 = 0.4683363;
       const du = u - u0;
       const dv = v - v0;
 
-      // Heuristic mapping:
-      // - du mainly acts like A/B (warm/cool)
-      // - dv mainly acts like G/M (green/magenta)
-      // scale to "steps" roughly within [-9..+9]
-      let ab = clamp(Math.round(-du * 250), -9, 9); // du+ => cooler => push A? (sign tuned)
+      let ab = clamp(Math.round(-du * 250), -9, 9);
       let gm = clamp(Math.round(dv * 250), -9, 9);
 
-      // label
       const abLabel = (ab>0) ? ("A" + ab) : (ab<0 ? ("B" + (-ab)) : "0");
       const gmLabel = (gm>0) ? ("G" + gm) : (gm<0 ? ("M" + (-gm)) : "0");
 
-      // crude reliability from distance magnitude (too tiny => unreliable)
       const mag = Math.sqrt(du*du + dv*dv);
       const rel = clamp((mag*120), 0.15, 1.0);
 
@@ -1271,13 +1275,11 @@ function initWorker(){
       return {base:"표준 (Standard)", reason:"범용"};
     }
 
-    // WB 분석: 평균 XYZ -> xy -> CCT + Shift proxy
     function estimateWB(rgba, stridePx){
       const step = 4 * Math.max(1, stridePx|0);
       let sumX=0, sumY=0, sumZ=0;
       let n=0;
 
-      // 중간톤 가중: 너무 어둡거나 너무 밝은 픽셀은 제외(화이트/블랙 클립 방지)
       for(let i=0;i<rgba.length;i+=step){
         const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
         const lum = 0.2126*r + 0.7152*g + 0.0722*b;
@@ -1307,7 +1309,6 @@ function initWorker(){
       const uv = xyToUv(x,y);
       const sh = wbShiftFromUv(uv[0], uv[1]);
 
-      // reliability: 샘플 수 + shift magnitude 둘 다 고려
       const relN = clamp(n / 6000, 0.20, 1.0);
       const reliability = clamp(0.55*relN + 0.45*sh.rel, 0.20, 1.0);
 
@@ -1323,9 +1324,12 @@ function initWorker(){
     }
 
     self.onmessage = (e)=>{
-      const {origRGBA, refRGBA, hasOrig, aiType, mode, stridePx} = e.data;
+      const {origBuf, refBuf, hasOrig, aiType, mode, stridePx} = e.data;
 
       const stride = Math.max(1, stridePx|0);
+
+      const refRGBA = new Uint8ClampedArray(refBuf);
+      const origRGBA = hasOrig ? new Uint8ClampedArray(origBuf) : null;
 
       const r = luminanceHistFromRGBA(refRGBA, stride);
       const o = hasOrig ? luminanceHistFromRGBA(origRGBA, stride) : uniformHist();
@@ -1349,7 +1353,6 @@ function initWorker(){
       const cR = getColorAxesDataWeighted(refRGBA, stride);
       const axesR = cR.axes;
 
-      // 1장 모드 중립 축 보수화: S=0.24 (이전 0.42보다 중립에 가까움)
       const axesO = hasOrig ? getColorAxesDataWeighted(origRGBA, stride).axes : {
         R:{H:0,S:0.24,L:0.50,count:9999},
         Y:{H:60,S:0.24,L:0.50,count:9999},
@@ -1399,7 +1402,6 @@ function initWorker(){
       if(brightRatio > 0.35) warnings.push("타겟이 매우 밝습니다(명부 비중↑). 톤커브가 단순화될 수 있습니다.");
       if(cR.validColored < 1500) warnings.push("유효 색상 데이터가 부족합니다(저채도/무채색). 6색축은 참고용입니다.");
 
-      // WB estimate from ref only
       const wb = estimateWB(refRGBA, stride);
 
       self.postMessage({
@@ -1425,10 +1427,14 @@ function initWorker(){
 
 /* =========================================================
    AI 피사체 판별 (auto일 때만)
+   - PATCH (3): AI 미로딩/실패면 fallback
 ========================================================= */
 async function detectAiType(){
   if(userMode !== "auto") return {type:"manual", note:"수동"};
-  if(!faceModel || !classifyModel) return {type:"fallback", note: aiStatusText};
+
+  if(!faceModel || !classifyModel){
+    return {type:"fallback", note: aiStatusText};
+  }
 
   const canvas = document.getElementById("canvas");
   try{
@@ -1442,15 +1448,17 @@ async function detectAiType(){
     return {type:"standard", note:`AI: 일반(${preds[0].className})`};
   }catch(e){
     console.warn("AI 판별 실패:", e);
-    return {type:"fallback", note:"AI 판별 실패(우회)"}; 
+    return {type:"fallback", note:"AI 판별 실패(우회)"};
   }
 }
 
 /* =========================================================
    분석 메인
-   - PATCH: EXIF orientation 적용
-   - PATCH: stride 샘플링 값 전달
+   - EXIF orientation 적용
+   - stride 샘플링 전달
    - WB 제안 포함
+   - PATCH (2): Worker transfer 최적화(버퍼 직접 전송)
+   - PATCH (3): auto 모드면 분석 시점에 AI 로딩 시도
 ========================================================= */
 async function analyzeAll(){
   const btn = document.getElementById("btnAnalyze");
@@ -1473,9 +1481,6 @@ async function analyzeAll(){
 
   try{
     const maxDim = parseInt(document.getElementById("maxDim").value, 10);
-
-    // 샘플링 스트라이드(픽셀 단위): 모바일 안정성을 우선
-    // 1024: 10 / 1280: 8 정도가 무난
     const stridePx = (maxDim >= 1280) ? 8 : 10;
 
     // 1) 타겟(ref) 먼저 draw (canvas = ref)
@@ -1483,23 +1488,35 @@ async function analyzeAll(){
     const bmR = await decodeToImageBitmap(refFileState);
     const idR = drawScaledToImageData(bmR, maxDim, refOri);
 
+    // PATCH (3): auto 모드면 여기서 AI 로딩(필요 시)
+    if(userMode === "auto" && aiState !== "ready"){
+      await ensureAIModelsLoaded(); // 실패해도 fallback로 계속 진행
+    }
+
     // 2) 타겟을 보고 AI 판별
     const ai = await detectAiType();
-    const aiType = (userMode==="auto") ? (ai.type==="manual" ? "fallback" : ai.type) : "fallback";
+    const aiType = (userMode==="auto")
+      ? (ai.type==="manual" ? "fallback" : ai.type)
+      : "fallback";
 
     // 3) 2장 모드면 원본(orig) draw해서 idO 추출
     let idO = null;
-    let origOri = 1;
     if(shotMode === "two"){
-      origOri = await getExifOrientation(origFileState);
+      const origOri = await getExifOrientation(origFileState);
       const bmO = await decodeToImageBitmap(origFileState);
       idO = drawScaledToImageData(bmO, maxDim, origOri);
     }
 
-    // worker compute (transfer)
-    const refBuf = idR.data.buffer;
+    // PATCH (2): 버퍼 직접 전송(Transfer)
+    const refArr = idR.data; // Uint8ClampedArray
+    const refBuf = refArr.buffer;
+
     const hasOrig = (shotMode==="two");
-    const origBuf = hasOrig ? idO.data.buffer : null;
+    let origBuf = null;
+    if(hasOrig){
+      const origArr = idO.data;
+      origBuf = origArr.buffer;
+    }
 
     const result = await new Promise((resolve, reject)=>{
       const onMsg = (ev)=>{ cleanup(); resolve(ev.data); };
@@ -1513,8 +1530,7 @@ async function analyzeAll(){
 
       if(hasOrig){
         worker.postMessage({
-          origRGBA: new Uint8ClampedArray(origBuf),
-          refRGBA: new Uint8ClampedArray(refBuf),
+          origBuf, refBuf,
           hasOrig: true,
           aiType,
           mode: userMode,
@@ -1522,7 +1538,7 @@ async function analyzeAll(){
         }, [origBuf, refBuf]);
       }else{
         worker.postMessage({
-          refRGBA: new Uint8ClampedArray(refBuf),
+          refBuf,
           hasOrig: false,
           aiType,
           mode: userMode,
@@ -1554,7 +1570,6 @@ async function analyzeAll(){
 
     const finalRes = applyFujiOverlay(analysis, presetKey, strength01);
 
-    // compose 5pt curve (IN->OUT)
     const pts = [0,64,128,192,255].map(x=>{
       const y = finalRes.toneLUT[x];
       return {x, y};
@@ -1579,7 +1594,6 @@ async function analyzeAll(){
       ? "Fuji Overlay: OFF"
       : `Fuji Overlay: ${FUJI_PRESETS[presetKey].name} (${Math.round(strength01*100)}%)`;
 
-    // WB text
     const wb = finalRes.wb || analysis.wb;
     const wbText = wb?.ok
       ? `K ${wb.kelvin} · Shift ${wb.abLabel} / ${wb.gmLabel}`
@@ -1587,7 +1601,7 @@ async function analyzeAll(){
     const wbRel = wb?.ok ? `${Math.round((wb.reliability||0.2)*100)}%` : "낮음";
 
     summaryText =
-`[Canon Recipe - SUMMARY v9.2 WB+EXIF PATCHED]
+`[Canon Recipe - SUMMARY v9.3 LazyAI+WorkerXfer]
 - Shot: ${shotLabel}
 - Mode: ${modeLabel}
 - ${presetLabel}
@@ -1607,7 +1621,7 @@ ${axesText}
 
     fullText =
 `==================================================
- 📷 CANON RECIPE REPORT (v9.2 WB+EXIF PATCHED)
+ 📷 CANON RECIPE REPORT (v9.3 LazyAI+WorkerXfer)
 ==================================================
 * Shot: ${shotLabel}
 * Mode: ${modeLabel}
@@ -1733,6 +1747,7 @@ window.onload = ()=>{
   setupDropZone("dropRef","refFile","thumbRef","fileRef", f=>refFileState=f);
 
   initWorker();
+
   updateStrengthLabel();
   updatePresetLabel();
 
@@ -1740,7 +1755,9 @@ window.onload = ()=>{
   setMode("auto");
   setTab("sum");
 
-  loadAIModels();
+  // PATCH (3): 초기 AI 로딩 제거(지연로딩)
+  setAIUI("idle", "AI 미로딩 (자동 시 분석 때 로딩)");
+
   refreshReady();
 };
 </script>
