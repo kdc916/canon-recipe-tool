@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Canon 레시피 & LUT 제네레이터 (v8.2 모드 반영)</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --text:#f8fafc;
+      --line:#334155; --brand:#ff3f34; --ok:#10b981; --warn:#f59e0b;
+      --cyan:#06b6d4; --black:#020617; --radius: 16px;
+    }
+    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+    body{ margin:0; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background: var(--bg); color:var(--text); padding: 16px; line-height: 1.5; }
+    .app{ max-width: 1000px; margin: 0 auto; padding-bottom: 40px; }
+
+    .header{ display:flex; flex-direction:column; gap:12px; margin-bottom:20px; }
+    .title h1{ margin:0; font-size:20px; letter-spacing:-0.5px; }
+    .title p{ margin:4px 0 0; color:var(--muted); font-size:13px; word-break: keep-all; }
+    .badges{ display:flex; gap:8px; flex-wrap:wrap; }
+    .badge{ border:1px solid var(--line); background:rgba(30,41,59,0.7); padding:6px 12px; border-radius:999px; font-size:11px; font-weight:700; display:flex; gap:6px; align-items:center; }
+    .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted); }
+    .dot.ok{ background:var(--ok); } .dot.warn{ background:var(--warn); }
+
+    .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    @media (max-width: 800px){ .grid{ grid-template-columns:1fr; } }
+
+    .card{ background: var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); overflow:hidden; }
+    .card-h{ padding:16px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); background: rgba(15,23,42,0.4); }
+    .card-h strong{ font-size:15px; }
+    .step{ font-size:12px; color:var(--muted); padding:4px 10px; border:1px solid var(--line); border-radius:999px; background:var(--bg); font-weight:700; }
+    .card-b{ padding:16px; }
+
+    .uploader{ display:flex; flex-direction:column; gap:12px; }
+    .drop{ border:2px dashed var(--line); background: rgba(15,23,42,0.5); border-radius:12px; padding:20px; transition: 0.2s; cursor:pointer; min-height: 140px; display:flex; flex-direction:column; gap:8px; justify-content:center; align-items:center; text-align:center; }
+    .drop:active{ background:rgba(255,63,52,0.1); border-color:var(--brand); }
+    .drop.dragover{ border-color: var(--ok); background: rgba(16,185,129,0.1); }
+    .drop .label{ font-weight:800; font-size:14px; }
+    .drop input{ display:none; }
+    .thumb{ width:100%; display:none; border-radius:8px; max-height:140px; object-fit:cover; border:1px solid var(--line); }
+    .filename{ font-size:12px; color: var(--cyan); font-weight:800; display:none; word-break:break-all; }
+
+    .btn{ border:0; border-radius:12px; padding:16px; font-weight:800; cursor:pointer; transition:0.2s; font-size:14px; width: 100%; display: flex; justify-content: center; align-items: center; gap:8px; }
+    .btn.primary{ background: var(--brand); color:white; }
+    .btn.primary:active{ filter: brightness(0.9); transform: scale(0.98); }
+    .btn.ghost{ background: rgba(30,41,59,0.8); border:1px solid var(--line); color: var(--text); }
+    .btn.lut{ background: var(--cyan); color: #000; }
+    .btn:disabled{ opacity:0.4; cursor:not-allowed; transform:none !important; }
+
+    .mini{ color:var(--muted); font-size:12px; border:1px solid var(--line); background: var(--bg); padding:12px; border-radius:10px; word-break: keep-all; line-height: 1.5;}
+
+    .seg{ display:flex; flex-direction:column; gap:8px; border:1px solid var(--line); background: var(--bg); padding:12px; border-radius:12px; margin-bottom: 12px;}
+    .seg .label{ color:var(--muted); font-size:12px; font-weight:800; }
+    .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+    .chip{ border:1px solid var(--line); background: var(--card); color: var(--text); padding:10px 14px; border-radius:999px; font-size:13px; font-weight:700; cursor:pointer; transition:0.2s; flex-grow: 1; text-align: center; }
+    .chip.active{ border-color: var(--brand); background: rgba(255,63,52,0.15); color: #ff6b6b; }
+
+    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 12px;}
+    .kv{ flex:1; display:flex; justify-content:space-between; align-items:center; font-size:13px; border:1px solid var(--line); background: var(--bg); padding:10px 14px; border-radius:12px; }
+    .kv select{ background: var(--card); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px; outline:none; font-weight:600;}
+
+    .tabs{ display:flex; gap:8px; border:1px solid var(--line); background: var(--bg); padding:8px; border-radius:14px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-top:16px;}
+    .tabs .left{ display:flex; gap:8px; flex-wrap:wrap; }
+    .tab{ border:1px solid var(--line); background: var(--card); color: var(--text); padding:8px 14px; border-radius:999px; font-size:12px; font-weight:900; cursor:pointer; transition:0.15s; user-select:none; }
+    .tab.active{ border-color: var(--ok); box-shadow: 0 0 0 2px rgba(16,185,129,0.15) inset; color: var(--ok);}
+    .tabHint{ color:var(--muted); font-size:12px; font-weight:800; padding:6px 10px; border-radius:999px; background: rgba(15,23,42,0.4); white-space:nowrap; }
+
+    .summaryCard{ display:grid; grid-template-columns:1fr; gap:10px; margin-top:12px;}
+    .pill{ border:1px solid var(--line); background: var(--bg); border-radius:12px; padding:14px; display:flex; justify-content:space-between; gap:10px; align-items:flex-start;}
+    .pill .k{ color:var(--muted); font-size:12px; margin-bottom: 4px;}
+    .pill .v{ font-weight:800; font-size: 14px; line-height: 1.4;}
+    .pill .v.ok{ color:var(--ok); } .pill .v.warn{ color:var(--warn); } .pill .v.cyan{ color:var(--cyan); }
+
+    .report{ margin-top:12px; background: var(--black); color: var(--ok); border:1px solid rgba(16,185,129,0.3); border-radius:12px; padding:16px; white-space:pre-wrap; font-family: monospace; font-size:13px; overflow-x:auto; line-height:1.6; }
+
+    .spinner{ width:18px; height:18px; border-radius:50%; border:2px solid rgba(255,255,255,0.3); border-top-color: #fff; animation: spin 0.8s linear infinite; display:none; }
+    @keyframes spin{ to{ transform: rotate(360deg);} }
+    canvas{ display:none; }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <div class="header">
+      <div class="title">
+        <h1>📷 Recipe & 3D LUT 생성기 <span style="color:var(--cyan); font-size:14px;">v8.2</span></h1>
+        <p>모드 토글이 “진짜로” 결과에 반영됩니다. (인물=안전, 풍경=공격, 야경=절제)</p>
+      </div>
+      <div class="badges">
+        <div class="badge"><span id="dotAI" class="dot warn"></span><span id="aiText">AI 로딩중</span></div>
+        <div class="badge"><span id="dotOrig" class="dot"></span> 원본</div>
+        <div class="badge"><span id="dotRef" class="dot"></span> 타겟</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-h"><strong>STEP 1. 사진 선택</strong><span class="step">1/3</span></div>
+        <div class="card-b">
+          <div class="uploader">
+            <div class="drop" id="dropOrig">
+              <div class="label">1) 원본 (Standard 톤)</div>
+              <input id="origFile" type="file" accept="image/*"/>
+              <img id="thumbOrig" class="thumb" alt="orig"/>
+              <div id="fileOrig" class="filename"></div>
+            </div>
+            <div class="drop" id="dropRef">
+              <div class="label">2) 타겟 (원하는 색감)</div>
+              <input id="refFile" type="file" accept="image/*"/>
+              <img id="thumbRef" class="thumb" alt="ref"/>
+              <div id="fileRef" class="filename"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><strong>STEP 2. 분석 및 추출</strong><span class="step">2/3</span></div>
+        <div class="card-b">
+          <div class="seg">
+            <div class="label">모드 선택 (터치)</div>
+            <div class="chips">
+              <div class="chip active" data-mode="auto" onclick="setMode('auto')">AI 자동</div>
+              <div class="chip" data-mode="portrait" onclick="setMode('portrait')">인물</div>
+              <div class="chip" data-mode="landscape" onclick="setMode('landscape')">풍경</div>
+              <div class="chip" data-mode="snap" onclick="setMode('snap')">스냅</div>
+              <div class="chip" data-mode="night" onclick="setMode('night')">야경</div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="kv">
+              <b>해상도</b>
+              <select id="maxDim">
+                <option value="1024" selected>1024px</option>
+                <option value="1280">1280px</option>
+              </select>
+            </div>
+          </div>
+
+          <button id="btnAnalyze" class="btn primary" onclick="analyzeAll()" disabled>
+            ⚡ 분석 시작 <span id="spin" class="spinner"></span>
+          </button>
+
+          <div class="mini" style="margin-top:12px;">
+            <b>모드 가이드</b><br/>
+            • 인물: 피부톤(R/Y) 튀는 거 억제 (안전)<br/>
+            • 풍경: 하늘/녹색(B/G/C) 반영 적극 (쨍)<br/>
+            • 야경: 과도한 색변환 억제 + 암부 리프트 감도↑ (번짐 방지)<br/>
+            • 스냅: 중립 밸런스 (무난)
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1; display:none;" id="resultCard">
+        <div class="card-h"><strong>STEP 3. 분석 결과</strong><span class="step" style="color:var(--ok); border-color:var(--ok);">완료</span></div>
+        <div class="card-b">
+
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <button id="btnLut" class="btn lut" onclick="downloadLUT()">🎬 3D LUT (.cube) 다운로드</button>
+            <div style="display:flex; gap:10px;">
+              <button id="btnCopySummary" class="btn ghost" onclick="copySummary()" style="flex:1;">📋 요약 복사</button>
+              <button id="btnCopyFull" class="btn ghost" onclick="copyFull()" style="flex:1;">📋 전체 복사</button>
+            </div>
+          </div>
+
+          <div class="tabs" id="tabs">
+            <div class="left">
+              <div class="tab active" data-tab="sum" onclick="setTab('sum')">요약 보기</div>
+              <div class="tab" data-tab="full" onclick="setTab('full')">전체 보기</div>
+            </div>
+            <div class="tabHint" id="tabHint">초보자용 요약 뷰입니다.</div>
+          </div>
+
+          <div class="summaryCard" id="summaryBox">
+            <div class="pill">
+              <div><div class="k">AI/모드 판별</div><div class="v cyan" id="sumAI">-</div></div>
+              <div style="text-align:right;"><div class="k">추천 베이스</div><div class="v ok" id="sumBase">-</div></div>
+            </div>
+            <div class="pill">
+              <div><div class="k">대비(Contrast)</div><div class="v" id="sumContrast">-</div></div>
+              <div style="text-align:right;"><div class="k">블랙 리프트</div><div class="v" id="sumLift">-</div></div>
+            </div>
+            <div class="pill">
+              <div><div class="k">톤 커브(Luminance)</div><div class="v" id="sumCurve" style="white-space:pre-wrap; font-size:13px;">-</div></div>
+            </div>
+            <div class="pill">
+              <div><div class="k">6색축(H/S/L)</div><div class="v" id="sumColors" style="white-space:pre-wrap; font-size:13px;">-</div></div>
+            </div>
+
+            <div class="mini">
+              <b>📷 PSE 입력 순서 (요약)</b><br/>
+              1) Base = <b id="sumBase2">-</b><br/>
+              2) Contrast = <b id="sumContrast2">-</b><br/>
+              3) Tone Curve = 위 5개 포인트 입력<br/>
+              4) Specific Colors = 6색축 수치 입력
+            </div>
+          </div>
+
+          <div id="fullBox" style="display:none; margin-top:12px;">
+            <div id="reportBox" class="report"></div>
+          </div>
+
+          <canvas id="canvas"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+let origFileState = null, refFileState = null;
+let summaryText = "", fullText = "";
+let globalToneLUT = null, globalColorSliders = null;
+
+let worker = null, faceModel = null, classifyModel = null, isAiReady = false;
+let userMode = "auto", viewTab = "sum";
+
+/* 탭 */
+function setTab(tab){
+  viewTab = tab;
+  document.querySelectorAll(".tab").forEach(el=> el.classList.toggle("active", el.dataset.tab === tab));
+  const hint = document.getElementById("tabHint");
+  if(tab === "sum"){
+    hint.textContent = "초보자용 요약 뷰입니다.";
+    document.getElementById("summaryBox").style.display = "grid";
+    document.getElementById("fullBox").style.display = "none";
+  }else{
+    hint.textContent = "상세 레시피 리포트입니다.";
+    document.getElementById("summaryBox").style.display = "none";
+    document.getElementById("fullBox").style.display = "block";
+  }
+}
+
+/* 모드 */
+function setMode(mode){
+  userMode = mode;
+  document.querySelectorAll(".chip").forEach(el=> el.classList.toggle("active", el.dataset.mode === mode));
+}
+
+/* AI 로딩 */
+async function loadAIModels(){
+  const dot = document.getElementById('dotAI'), text = document.getElementById('aiText');
+  try{
+    await tf.ready();
+    faceModel = await blazeface.load();
+    classifyModel = await mobilenet.load();
+    isAiReady = true;
+    dot.className = "dot ok"; text.textContent = "AI 준비완료";
+  }catch(e){
+    isAiReady = true;
+    dot.className = "dot warn"; text.textContent = "AI 실패(우회)";
+  }finally{
+    refreshReady();
+  }
+}
+
+/* Ready */
+function refreshReady(){
+  const hasOrig = !!origFileState, hasRef = !!refFileState;
+  document.getElementById('dotOrig').className = "dot " + (hasOrig ? "ok" : "");
+  document.getElementById('dotRef').className = "dot " + (hasRef ? "ok" : "");
+  document.getElementById('btnAnalyze').disabled = !(hasOrig && hasRef && isAiReady);
+}
+
+/* 업로더 */
+function setupDropZone(dropId, inputId, thumbId, nameId, onSetFile){
+  const drop = document.getElementById(dropId), input = document.getElementById(inputId);
+  const thumb = document.getElementById(thumbId), nameEl = document.getElementById(nameId);
+
+  drop.onclick = ()=>input.click();
+  drop.ondragover = (e)=>{ e.preventDefault(); drop.classList.add('dragover'); };
+  drop.ondragleave = ()=>drop.classList.remove('dragover');
+  drop.ondrop = (e)=>{
+    e.preventDefault(); drop.classList.remove('dragover');
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f){ onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady(); }
+  };
+  input.onchange = ()=>{
+    const f = input.files && input.files[0];
+    if(f){ onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady(); }
+  };
+}
+function updatePreview(file, imgEl, nameEl){
+  nameEl.textContent = "✅ " + file.name; nameEl.style.display = "block";
+  const r = new FileReader();
+  r.onload = e=>{ imgEl.src = e.target.result; imgEl.style.display = "block"; };
+  r.readAsDataURL(file);
+}
+
+/* Worker: v8.2 모드 반영 */
+function initWorker(){
+  if(worker) return;
+
+  const workerCode = `
+  function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+  function rgbToHsl(r,g,b){
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    let h=0, s=0; const l=(max+min)/2;
+    if(max!==min){
+      const d=max-min;
+      s = l>0.5 ? d/(2-max-min) : d/(max+min);
+      switch(max){
+        case r: h=(g-b)/d+(g<b?6:0); break;
+        case g: h=(b-r)/d+2; break;
+        case b: h=(r-g)/d+4; break;
+      }
+      h*=60;
+    }
+    return [h,s,l];
+  }
+
+  function circularHueDiff(h2,h1){
+    let d=(h2-h1)%360;
+    if(d>180) d-=360;
+    if(d<=-180) d+=360;
+    return d;
+  }
+
+  function luminanceHistFromRGBA(rgba){
+    const hist = new Uint32Array(256);
+    let total=0, tooDark=0;
+    for(let i=0;i<rgba.length;i+=4){
+      const lum = (0.299*rgba[i] + 0.587*rgba[i+1] + 0.114*rgba[i+2]) | 0;
+      hist[lum]++; total++;
+      if(lum<=5) tooDark++;
+    }
+    return {hist,total,tooDark};
+  }
+
+  function cdfFromHist(hist,total){
+    const cdf = new Float32Array(256);
+    let acc=0;
+    for(let i=0;i<256;i++){ acc+=hist[i]; cdf[i]=acc/total; }
+    return cdf;
+  }
+
+  function percentileByHist(hist,total,p){
+    const target=total*p; let acc=0;
+    for(let i=0;i<256;i++){ acc+=hist[i]; if(acc>=target) return i; }
+    return 255;
+  }
+
+  function buildToneLUTByCDFMatch(cdfO,cdfR){
+    const lut=new Uint8Array(256);
+    let j=0;
+    for(let i=0;i<256;i++){
+      const p=cdfO[i];
+      while(j<255 && cdfR[j]<p) j++;
+      lut[i]=j;
+    }
+    return lut;
+  }
+
+  function modePreset(mode, darkRatio){
+    // divisors: raw diff -> canon scale, caps: max canon slider
+    // liftMul: black-lift sensitivity
+    let hueDiv=6.0, satDiv=10.0, lumDiv=10.0;
+    let capSkin=6, capOther=8;
+    let liftMul=1.0;
+    let contrastMul=1.0;
+
+    if(mode==="portrait"){
+      hueDiv=6.5; satDiv=11.0; lumDiv=11.0;
+      capSkin=5; capOther=7;
+      liftMul=1.0;
+      contrastMul=0.95;
+    }else if(mode==="landscape"){
+      hueDiv=5.6; satDiv=9.2; lumDiv=9.2;
+      capSkin=6; capOther=8;
+      liftMul=0.95;
+      contrastMul=1.05;
+    }else if(mode==="snap"){
+      hueDiv=6.0; satDiv=10.0; lumDiv=10.0;
+      capSkin=6; capOther=8;
+      liftMul=1.0;
+      contrastMul=1.0;
+    }else if(mode==="night"){
+      hueDiv=7.2; satDiv=12.5; lumDiv=12.5;
+      capSkin=4; capOther=5;
+      liftMul=1.18;
+      contrastMul=0.85;
+      if(darkRatio>0.35){
+        capSkin=3; capOther=4;
+        hueDiv=7.8; satDiv=13.5; lumDiv=13.5;
+      }
+    }
+    return {hueDiv,satDiv,lumDiv,capSkin,capOther,liftMul,contrastMul};
+  }
+
+  function applyBlackLiftCompensation(lut, refP02, liftMul){
+    const liftRaw = Math.max(0, refP02 - 8);
+    const strength = Math.max(0, Math.min(1, (liftRaw/22) * liftMul));
+    const liftPx = Math.round(6 + 18*strength);
+
+    const out = new Uint8Array(256);
+    for(let i=0;i<256;i++){
+      let boost=0;
+      if(i<128) boost = liftPx * (1 - (i/128));
+      out[i] = Math.min(255, lut[i] + boost);
+      if(i>0 && out[i] < out[i-1]) out[i] = out[i-1];
+    }
+    return {lut: out, isLifted: strength>=0.20, strength, liftPx};
+  }
+
+  function getColorAxesDataWeighted(rgba){
+    const buckets = {
+      R:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+      Y:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+      G:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+      C:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+      B:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+      M:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0}
+    };
+    let valid=0;
+    for(let i=0;i<rgba.length;i+=4){
+      let [h,s,l] = rgbToHsl(rgba[i]/255, rgba[i+1]/255, rgba[i+2]/255);
+      if(s<0.08 || l<0.06 || l>0.94) continue;
+
+      let k='M';
+      if(h>=340 || h<20) k='R';
+      else if(h>=20 && h<80) k='Y';
+      else if(h>=80 && h<150) k='G';
+      else if(h>=150 && h<210) k='C';
+      else if(h>=210 && h<280) k='B';
+
+      const w = Math.max(0.01, Math.pow(s,1.5) * (1.0 - Math.min(0.8, Math.abs(l-0.5)*1.6)));
+      const rad=h*Math.PI/180, bk=buckets[k];
+      bk.sumCos+=Math.cos(rad)*w; bk.sumSin+=Math.sin(rad)*w;
+      bk.sumS+=s*w; bk.sumL+=l*w; bk.wSum+=w; bk.count++; valid++;
+    }
+    const out={};
+    for(const k in buckets){
+      const b=buckets[k];
+      if(b.wSum>0){
+        let h=Math.atan2(b.sumSin, b.sumCos)*180/Math.PI;
+        if(h<0) h+=360;
+        out[k]={H:h, S:b.sumS/b.wSum, L:b.sumL/b.wSum, count:b.count};
+      } else out[k]={H:0,S:0,L:0,count:0};
+    }
+    return {axes: out, validColored: valid};
+  }
+
+  function recommendBase(mode, aiType, contrast, cR){
+    if(mode && mode!=="auto"){
+      if(mode==="portrait") return {base:"인물사진 (Portrait)", reason:"[수동모드] 인물"};
+      if(mode==="landscape") return {base:"풍경사진 (Landscape)", reason:"[수동모드] 풍경"};
+      if(mode==="snap") return {base:"표준 (Standard)", reason:"[수동모드] 스냅"};
+      if(mode==="night") return {base:"뉴트럴 (Neutral)", reason:"[수동모드] 야경(계조 확보)"};
+    }
+
+    let base="표준 (Standard)", reason="범용적인 세팅입니다.";
+    if(aiType==="portrait" || (cR.validColored>0 && (cR.axes.R.count + cR.axes.Y.count) > cR.validColored*0.55)){
+      base="인물사진 (Portrait)"; reason="피부톤(R/Y) 중심";
+    }else if(aiType==="landscape" || (cR.validColored>0 && (cR.axes.G.count + cR.axes.B.count + cR.axes.C.count) > cR.validColored*0.45)){
+      base="풍경사진 (Landscape)"; reason="자연(G/B/C) 중심";
+    }else if(contrast<=-2){
+      base="뉴트럴 (Neutral)"; reason="대비가 낮아 계조 확보에 유리합니다.";
+    }
+    return {base, reason};
+  }
+
+  self.onmessage = (e)=>{
+    const {origRGBA, refRGBA, aiResult, mode} = e.data;
+
+    const o = luminanceHistFromRGBA(origRGBA);
+    const r = luminanceHistFromRGBA(refRGBA);
+    const darkRatio = r.tooDark / r.total;
+
+    const preset = modePreset(mode || "auto", darkRatio);
+
+    const cdfO = cdfFromHist(o.hist, o.total);
+    const cdfR = cdfFromHist(r.hist, r.total);
+
+    const rawLut = buildToneLUTByCDFMatch(cdfO, cdfR);
+
+    const rP02 = percentileByHist(r.hist, r.total, 0.02);
+    const liftRes = applyBlackLiftCompensation(rawLut, rP02, preset.liftMul);
+    const finalLut = liftRes.lut;
+
+    const oRange = Math.max(1, percentileByHist(o.hist, o.total, 0.95) - percentileByHist(o.hist, o.total, 0.05));
+    const rRange = Math.max(1, percentileByHist(r.hist, r.total, 0.95) - percentileByHist(r.hist, r.total, 0.05));
+    let contrast = clamp(Math.round((((rRange/oRange)-1)*6) * preset.contrastMul), -4, 4);
+
+    const cO = getColorAxesDataWeighted(origRGBA);
+    const cR = getColorAxesDataWeighted(refRGBA);
+
+    const keys = ['R','Y','G','C','B','M'];
+    const names = ["Red(빨강)","Yellow(노랑)","Green(초록)","Cyan(시안)","Blue(파랑)","Magenta(마젠타)"];
+    const colorSliders = [];
+
+    for(let i=0;i<6;i++){
+      const k = keys[i];
+      const countO = cO.axes[k].count;
+      const countR = cR.axes[k].count;
+
+      const diffH = (countO>0 && countR>0) ? circularHueDiff(cR.axes[k].H, cO.axes[k].H) : 0;
+      const diffS = (countO>0 && countR>0) ? (cR.axes[k].S - cO.axes[k].S) * 100 : 0;
+      const diffL = (countO>0 && countR>0) ? (cR.axes[k].L - cO.axes[k].L) * 100 : 0;
+
+      const cap = (k==='R' || k==='Y') ? preset.capSkin : preset.capOther;
+
+      // raw -> canon slider
+      const canonH = clamp(Math.round(diffH / preset.hueDiv), -cap, cap);
+      const canonS = clamp(Math.round(diffS / preset.satDiv), -cap, cap);
+      const canonL = clamp(Math.round(diffL / preset.lumDiv), -cap, cap);
+
+      // LUT용 raw shift는 "canon 값"을 기반으로 역산(일관성)
+      // H: deg, S/L: percent
+      const rawH = canonH * preset.hueDiv;
+      const rawS = canonS * preset.satDiv;
+      const rawL = canonL * preset.lumDiv;
+
+      colorSliders.push({
+        label: names[i], axis: k,
+        H: rawH, S: rawS, L: rawL,
+        canonH, canonS, canonL
+      });
+    }
+
+    const rec = recommendBase(mode || "auto", aiResult.type, contrast, cR);
+
+    self.postMessage({
+      ok:true,
+      contrast,
+      toneLUT: finalLut,
+      isLifted: liftRes.isLifted,
+      liftStrength: liftRes.strength,
+      liftPx: liftRes.liftPx,
+      base: rec.base,
+      reason: rec.reason,
+      colorSliders,
+      aiType: aiResult.type
+    });
+  };
+  `;
+
+  const url = URL.createObjectURL(new Blob([workerCode], {type:'application/javascript'}));
+  worker = new Worker(url);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
+/* 이미지 처리 */
+async function decodeToImageBitmap(file){
+  const url = URL.createObjectURL(file);
+  try{ return await createImageBitmap(file); }
+  finally{ URL.revokeObjectURL(url); }
+}
+function drawScaledToImageData(bitmap, maxDim){
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const tw = Math.max(1, Math.round(bitmap.width*scale));
+  const th = Math.max(1, Math.round(bitmap.height*scale));
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  canvas.width = tw; canvas.height = th;
+  ctx.clearRect(0,0,tw,th);
+  ctx.drawImage(bitmap, 0,0,tw,th);
+  return ctx.getImageData(0,0,tw,th);
+}
+
+/* 3D LUT 생성 */
+function generateCubeLUT(toneLUT, sliders){
+  const SIZE = 33;
+  let content = `TITLE "Canon_Style_LUT_v8_2"\nLUT_3D_SIZE ${SIZE}\n\n`;
+
+  const rgb2hsl = (r,g,b)=>{
+    let max=Math.max(r,g,b), min=Math.min(r,g,b);
+    let h=0,s=0,l=(max+min)/2;
+    if(max!==min){
+      let d=max-min;
+      s = l>0.5 ? d/(2-max-min) : d/(max+min);
+      switch(max){
+        case r: h=(g-b)/d+(g<b?6:0); break;
+        case g: h=(b-r)/d+2; break;
+        case b: h=(r-g)/d+4; break;
+      }
+      h*=60;
+    }
+    return [h,s,l];
+  };
+  const hsl2rgb = (h,s,l)=>{
+    const c=(1-Math.abs(2*l-1))*s;
+    const x=c*(1-Math.abs((h/60)%2-1));
+    const m=l-c/2;
+    let r=0,g=0,b=0;
+    if(h<60){r=c;g=x;b=0;}
+    else if(h<120){r=x;g=c;b=0;}
+    else if(h<180){r=0;g=c;b=x;}
+    else if(h<240){r=0;g=x;b=c;}
+    else if(h<300){r=x;g=0;b=c;}
+    else{r=c;g=0;b=x;}
+    return [r+m,g+m,b+m];
+  };
+
+  for(let bIdx=0; bIdx<SIZE; bIdx++){
+    for(let gIdx=0; gIdx<SIZE; gIdx++){
+      for(let rIdx=0; rIdx<SIZE; rIdx++){
+        let r = Math.round((rIdx/(SIZE-1))*255);
+        let g = Math.round((gIdx/(SIZE-1))*255);
+        let b = Math.round((bIdx/(SIZE-1))*255);
+
+        r = toneLUT[r]; g = toneLUT[g]; b = toneLUT[b];
+
+        let [hh, ss, ll] = rgb2hsl(r/255, g/255, b/255);
+
+        let axisIdx=-1;
+        if(hh>=340 || hh<20) axisIdx=0;
+        else if(hh>=20 && hh<80) axisIdx=1;
+        else if(hh>=80 && hh<150) axisIdx=2;
+        else if(hh>=150 && hh<210) axisIdx=3;
+        else if(hh>=210 && hh<280) axisIdx=4;
+        else axisIdx=5;
+
+        if(axisIdx!==-1 && ss>0.05){
+          const shift = sliders[axisIdx];
+          hh = (hh + shift.H) % 360; if(hh<0) hh+=360;
+          ss = Math.max(0, Math.min(1, ss + (shift.S/100)));
+          ll = Math.max(0, Math.min(1, ll + (shift.L/100)*0.5));
+        }
+
+        let [nr, ng, nb] = hsl2rgb(hh, ss, ll);
+        content += `${nr.toFixed(6)} ${ng.toFixed(6)} ${nb.toFixed(6)}\n`;
+      }
+    }
+  }
+  return content;
+}
+
+function downloadLUT(){
+  if(!globalToneLUT || !globalColorSliders) return alert("먼저 분석을 진행해주세요!");
+  const btn = document.getElementById('btnLut');
+  btn.textContent = "⏳ LUT 생성 중...";
+
+  setTimeout(()=>{
+    const cubeData = generateCubeLUT(globalToneLUT, globalColorSliders);
+    const blob = new Blob([cubeData], {type:'text/plain;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Custom_Recipe_v8_2_${Date.now()}.cube`;
+    a.click();
+
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    btn.textContent = "🎬 3D LUT (.cube) 다운로드";
+  }, 50);
+}
+
+/* 분석 메인 */
+async function analyzeAll(){
+  const btn = document.getElementById('btnAnalyze');
+  const spin = document.getElementById('spin');
+  btn.disabled = true; spin.style.display = "inline-block";
+  document.getElementById('resultCard').style.display = "none";
+
+  try{
+    const maxDim = parseInt(document.getElementById('maxDim').value, 10);
+
+    const [bmO, bmR] = await Promise.all([
+      decodeToImageBitmap(origFileState),
+      decodeToImageBitmap(refFileState)
+    ]);
+
+    // NOTE: 마지막 draw가 캔버스에 남음 (AI는 ref 기반으로 판단)
+    const idO = drawScaledToImageData(bmO, maxDim);
+    const idR = drawScaledToImageData(bmR, maxDim);
+
+    let aiResult = { type:'fallback' };
+    if(userMode === "auto" && faceModel && classifyModel){
+      const canvas = document.getElementById('canvas');
+      const faces = await faceModel.estimateFaces(canvas, false);
+      if(faces.length > 0) aiResult = { type:'portrait' };
+      else{
+        const preds = await classifyModel.classify(canvas);
+        const lsKw = ['mountain','ocean','sea','sky','landscape','park','forest','beach','lake','nature'];
+        if(preds?.some(p => lsKw.some(kw => p.className.toLowerCase().includes(kw)))) aiResult = { type:'landscape' };
+        else aiResult = { type:'standard' };
+      }
+    } else {
+      // 수동모드면 “수동”으로 표시만
+      if(userMode !== "auto") aiResult = { type:'manual' };
+    }
+
+    const origBuf = idO.data.buffer, refBuf = idR.data.buffer;
+    const result = await new Promise((resolve, reject)=>{
+      const onMsg = (ev)=>{ cleanup(); resolve(ev.data); };
+      const onErr = (err)=>{ cleanup(); reject(err); };
+      const cleanup = ()=>{ worker.removeEventListener('message', onMsg); worker.removeEventListener('error', onErr); };
+      worker.addEventListener('message', onMsg);
+      worker.addEventListener('error', onErr);
+      worker.postMessage(
+        { origRGBA: new Uint8ClampedArray(origBuf), refRGBA: new Uint8ClampedArray(refBuf), aiResult, mode: userMode },
+        [origBuf, refBuf]
+      );
+    });
+
+    const {contrast, toneLUT, isLifted, base, reason, colorSliders, aiType} = result;
+    globalToneLUT = toneLUT;
+    globalColorSliders = colorSliders;
+
+    // 요약/전체 텍스트
+    const pts = [0,64,128,192,255].map(x => `${x}->${toneLUT[x]}`);
+    const cTextInline = pts.join(" | ");
+    const colTextInline = colorSliders
+      .map(c=> `${c.label.split('(')[0]}: H${c.canonH>0?`+${c.canonH}`:c.canonH} S${c.canonS>0?`+${c.canonS}`:c.canonS} L${c.canonL>0?`+${c.canonL}`:c.canonL}`)
+      .join("\n");
+
+    const cTextFull = pts.map(p => {
+      const [a,b] = p.split("->");
+      return `   • Point ${a} -> ${b}`;
+    }).join("\n");
+
+    const colTextFull = colorSliders.map(c=>
+      `[ ${c.label} ]\n  색조(H): ${c.canonH>0?`+${c.canonH}`:c.canonH} | 채도(S): ${c.canonS>0?`+${c.canonS}`:c.canonS} | 명도(L): ${c.canonL>0?`+${c.canonL}`:c.canonL}`
+    ).join("\n\n");
+
+    const modeLabel =
+      userMode === "auto" ? `AI (${aiType})` :
+      `수동 (${userMode})`;
+
+    summaryText =
+`[Canon Picture Style Recipe - SUMMARY v8.2]
+- Mode: ${modeLabel}
+1) Base: ${base}
+2) Contrast: ${contrast}
+3) ToneCurve(5pt): ${cTextInline}
+4) SpecificColors(6-axis):
+${colTextInline}`.trim();
+
+    fullText =
+`==================================================
+ 📷 CANON PICTURE STYLE - RECIPE REPORT (v8.2)
+==================================================
+* 모드: ${modeLabel}
+
+[ 픽쳐스타일 추천 베이스 ]
+▶ 권장 베이스: [ ${base} ]
+▶ 추천 이유: ${reason}
+
+--------------------------------------------------
+[1. 기본 설정 (Basic Settings)]
+▶ 대비 (Contrast) : ${contrast}
+▶ 블랙 리프트 감지: ${isLifted ? "감지됨 (영화룩/필름룩)" : "약함/없음"}
+
+--------------------------------------------------
+[2. 톤 커브 좌표 (Luminance)]
+${cTextFull}
+
+--------------------------------------------------
+[3. 특정 색상 조정 (Six Color-Axes)]
+${colTextFull}
+==================================================`.trim();
+
+    // UI 반영
+    document.getElementById('sumAI').textContent = modeLabel;
+    document.getElementById('sumBase').textContent = base;
+    document.getElementById('sumBase2').textContent = base;
+
+    document.getElementById('sumContrast').textContent = String(contrast);
+    document.getElementById('sumContrast2').textContent = String(contrast);
+
+    document.getElementById('sumLift').textContent = isLifted ? "감지됨 (영화룩)" : "없음";
+    document.getElementById('sumLift').className = "v " + (isLifted ? "warn" : "ok");
+
+    document.getElementById('sumCurve').textContent = cTextInline.replace(/ \| /g, "\n");
+    document.getElementById('sumColors').textContent = colTextInline;
+
+    document.getElementById('reportBox').textContent = fullText;
+
+    document.getElementById('resultCard').style.display = "block";
+    setTab("sum");
+    document.getElementById('resultCard').scrollIntoView({ behavior:'smooth' });
+
+  }catch(e){
+    console.error(e);
+    alert("오류가 발생했습니다.\n(JPG/PNG 권장, HEIC는 브라우저에 따라 실패할 수 있어요)");
+  }finally{
+    btn.disabled = false;
+    spin.style.display = "none";
+    refreshReady();
+  }
+}
+
+/* 복사 */
+async function copySummary(){
+  if(!summaryText) return;
+  try{ await navigator.clipboard.writeText(summaryText); alert("요약을 복사했습니다!"); }
+  catch(e){ const ta=document.createElement('textarea'); ta.value=summaryText; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert("요약을 복사했습니다!"); }
+}
+async function copyFull(){
+  if(!fullText) return;
+  try{ await navigator.clipboard.writeText(fullText); alert("전체 레시피를 복사했습니다!"); }
+  catch(e){ const ta=document.createElement('textarea'); ta.value=fullText; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert("전체 레시피를 복사했습니다!"); }
+}
+
+/* init */
+window.onload = ()=>{
+  setupDropZone('dropOrig','origFile','thumbOrig','fileOrig', f=>origFileState=f);
+  setupDropZone('dropRef','refFile','thumbRef','fileRef', f=>refFileState=f);
+  initWorker();
+  loadAIModels();
+  setTab('sum');
+};
+</script>
+</body>
+</html>
