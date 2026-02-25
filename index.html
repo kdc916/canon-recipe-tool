@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Canon Recipe & Fuji Preset Overlay (v9.1 PATCHED FINAL)</title>
+  <title>Canon Recipe & Fuji Preset Overlay (v9.2 WB+EXIF+HEIC PATCHED FINAL)</title>
 
   <!-- AI (옵션 / 자동 모드에서만 사용) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
@@ -277,9 +277,10 @@
   <div class="app">
     <div class="header">
       <div class="title">
-        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.1 PATCHED</span></h1>
+        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.2 WB+EXIF PATCHED</span></h1>
         <p>
           ✅ <b>1장(타겟만) / 2장(원본+타겟)</b> 지원 · ✅ AI 자동(선택) · ✅ <b>Fuji Preset Overlay(B안)</b><br/>
+          ✅ <b>EXIF 회전 보정</b> · ✅ <b>HEIC 안내 강화</b> · ✅ <b>WB(켈빈/Shift) 추천</b><br/>
           “후지 룩을 캐논 PSE로?” → <b>분석 결과에 프리셋 감성을 ‘오버레이’</b> 하는 방식이 가장 안전하고 그럴듯합니다.
         </p>
       </div>
@@ -322,7 +323,8 @@
               <div class="label">타겟 (원하는 색감)</div>
               <div class="hint">
                 만들고 싶은 영화/필름 느낌의 참고 사진.<br/>
-                <b>초보자 팁:</b> 중간톤이 많고(하늘/벽/피부) 과한 역광이 아닌 사진이 안정적입니다.
+                <b>초보자 팁:</b> 중간톤이 많고(하늘/벽/피부) 과한 역광이 아닌 사진이 안정적입니다.<br/>
+                <b>주의:</b> iPhone <b>HEIC</b>는 브라우저에서 열리지 않을 수 있어요 → <b>JPG로 변환</b> 후 업로드 추천.
               </div>
               <input id="refFile" type="file" accept="image/*"/>
               <img id="thumbRef" class="thumb" alt="ref"/>
@@ -332,7 +334,8 @@
 
           <div class="mini" style="margin-top:12px;">
             <b>1장 모드(타겟만)</b>는 “대략적인 후지/영화 감성 레시피”를 빠르게 얻는 용도입니다.<br/>
-            <b>2장 모드</b>는 “내 원본 → 타겟” 매칭이라 더 정교합니다. (가능하면 2장 추천)
+            <b>2장 모드</b>는 “내 원본 → 타겟” 매칭이라 더 정교합니다. (가능하면 2장 추천)<br/>
+            <b>v9.2</b>: EXIF 회전 보정으로 iPhone/모바일 사진 뒤집힘 이슈를 줄였습니다.
           </div>
         </div>
       </div>
@@ -340,7 +343,7 @@
       <!-- STEP 2 -->
       <div class="card">
         <div class="card-h">
-          <strong>STEP 2. 분석 + Fuji 오버레이(B안)</strong>
+          <strong>STEP 2. 분석 + Fuji 오버레이(B안) + WB 제안</strong>
           <span class="step">2/3</span>
         </div>
         <div class="card-b">
@@ -398,7 +401,8 @@
 
           <div class="mini" style="margin-top:12px;">
             <b>B안(Fuji 오버레이)</b> = (분석 결과)와 (후지 프리셋) 사이를 <b>강도%</b>로 섞습니다.<br/>
-            과하면 강도를 낮추세요. 대체로 <b>20~45%</b>가 제일 “그럴듯”합니다.
+            과하면 강도를 낮추세요. 대체로 <b>20~45%</b>가 제일 “그럴듯”합니다.<br/>
+            <b>WB 제안</b>은 타겟의 평균 색온도 기반으로 <b>K(켈빈) + Shift(A/B, G/M)</b>를 추천합니다. (참고값)
           </div>
         </div>
       </div>
@@ -450,6 +454,17 @@
 
             <div class="pill">
               <div>
+                <div class="k">WB 제안 (타겟 평균)</div>
+                <div class="v cyan" id="sumWB">-</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="k">신뢰도</div>
+                <div class="v" id="sumWBRel">-</div>
+              </div>
+            </div>
+
+            <div class="pill">
+              <div>
                 <div class="k">톤 커브 (IN → OUT)</div>
                 <div class="v" id="sumCurve" style="white-space:pre-wrap; font-size:13px;">-</div>
               </div>
@@ -463,7 +478,8 @@
             </div>
 
             <div class="mini">
-              <b>📷 PSE 입력 순서 (요약)</b><br/>
+              <b>📷 입력 순서 (요약)</b><br/>
+              0) WB(참고) = <b id="sumWB2">-</b><br/>
               1) Base = <b id="sumBase2">-</b><br/>
               2) Contrast = <b id="sumC2">-</b> / Saturation = <b id="sumSat2">-</b> / Color Tone = <b id="sumTone2">-</b><br/>
               3) Tone Curve = 5포인트 (IN → OUT) 입력<br/>
@@ -637,14 +653,126 @@ function setStrengthEnabled(enabled){
 
 function updatePresetLabel(){
   const key = document.getElementById("fujiPreset").value;
-  document.getElementById("presetLabel").textContent = (key === "off") ? "OFF" : ("ON: " + FUJI_PRESETS[key].name);
-  // PATCH: Off일 때 강도 슬라이더 비활성화
-  setStrengthEnabled(key !== "off");
+  const strength = parseInt(document.getElementById("presetStrength").value, 10);
+  const isOffLike = (key === "off") || (strength === 0);
+  if(isOffLike){
+    document.getElementById("presetLabel").textContent = "OFF";
+    setStrengthEnabled(false);
+  }else{
+    document.getElementById("presetLabel").textContent = "ON: " + FUJI_PRESETS[key].name;
+    setStrengthEnabled(true);
+  }
 }
 
 document.getElementById("fujiPreset").addEventListener("change", ()=>{
   updatePresetLabel();
 });
+
+/* =========================================================
+   PATCH 1) HEIC 안내 강화: 선택 시 즉시 경고
+========================================================= */
+function isHeicFile(file){
+  const name = (file?.name || "").toLowerCase();
+  const type = (file?.type || "").toLowerCase();
+  return (
+    name.endsWith(".heic") || name.endsWith(".heif") ||
+    type.includes("heic") || type.includes("heif")
+  );
+}
+function maybeWarnHeic(file){
+  if(isHeicFile(file)){
+    alert("⚠️ HEIC/HEIF 파일은 브라우저에서 열리지 않을 수 있어요.\n가능하면 '사진 앱/공유/파일로 저장'에서 JPG로 변환 후 업로드해 주세요.");
+  }
+}
+
+/* =========================================================
+   PATCH 2) EXIF Orientation 읽기 (JPEG 한정 / 경량 파서)
+   - iPhone/모바일 사진 회전/미러 뒤집힘 보정
+========================================================= */
+async function getExifOrientation(file){
+  try{
+    const name = (file?.name || "").toLowerCase();
+    const type = (file?.type || "").toLowerCase();
+    const isJpeg = type.includes("jpeg") || type.includes("jpg") || name.endsWith(".jpg") || name.endsWith(".jpeg");
+    if(!isJpeg) return 1;
+
+    const buf = await file.slice(0, 256 * 1024).arrayBuffer(); // 앞쪽만 읽어도 대부분 충분
+    const view = new DataView(buf);
+
+    // JPEG SOI
+    if(view.getUint16(0, false) !== 0xFFD8) return 1;
+
+    let offset = 2;
+    const length = view.byteLength;
+
+    while(offset < length){
+      if(view.getUint8(offset) !== 0xFF) break;
+      const marker = view.getUint8(offset + 1);
+      offset += 2;
+
+      // EOI/SOS 이후는 중단
+      if(marker === 0xD9 || marker === 0xDA) break;
+
+      const segLen = view.getUint16(offset, false);
+      if(segLen < 2) break;
+
+      // APP1?
+      if(marker === 0xE1){
+        const start = offset + 2;
+        // "Exif\0\0"
+        if(start + 6 <= length){
+          const exif0 = view.getUint8(start + 0);
+          const exif1 = view.getUint8(start + 1);
+          const exif2 = view.getUint8(start + 2);
+          const exif3 = view.getUint8(start + 3);
+          const exif4 = view.getUint8(start + 4);
+          const exif5 = view.getUint8(start + 5);
+          const isExif = (exif0===0x45 && exif1===0x78 && exif2===0x69 && exif3===0x66 && exif4===0x00 && exif5===0x00);
+          if(isExif){
+            const tiff = start + 6;
+            if(tiff + 8 > length) return 1;
+
+            const endian = view.getUint16(tiff, false);
+            const little = (endian === 0x4949);
+            const getU16 = (o)=> view.getUint16(o, little);
+            const getU32 = (o)=> view.getUint32(o, little);
+
+            const magic = getU16(tiff + 2);
+            if(magic !== 0x002A) return 1;
+
+            const ifd0Offset = getU32(tiff + 4);
+            let ifd0 = tiff + ifd0Offset;
+            if(ifd0 + 2 > length) return 1;
+
+            const entries = getU16(ifd0);
+            ifd0 += 2;
+            for(let i=0;i<entries;i++){
+              const ent = ifd0 + i*12;
+              if(ent + 12 > length) break;
+              const tag = getU16(ent + 0);
+              if(tag === 0x0112){ // Orientation
+                const type = getU16(ent + 2);
+                const count = getU32(ent + 4);
+                if(type === 3 && count === 1){
+                  const val = getU16(ent + 8);
+                  return val || 1;
+                }else{
+                  // 다른 타입이면 무시
+                  return 1;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      offset += segLen;
+    }
+    return 1;
+  }catch(e){
+    return 1;
+  }
+}
 
 /* =========================================================
    업로드
@@ -662,11 +790,17 @@ function setupDropZone(dropId, inputId, thumbId, nameId, onSetFile){
     e.preventDefault();
     drop.classList.remove("dragover");
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if(f){ onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady(); }
+    if(f){
+      maybeWarnHeic(f);
+      onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady();
+    }
   });
   input.addEventListener("change", ()=>{
     const f = input.files && input.files[0];
-    if(f){ onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady(); }
+    if(f){
+      maybeWarnHeic(f);
+      onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady();
+    }
   });
 }
 function updatePreview(file, imgEl, nameEl){
@@ -696,7 +830,6 @@ async function loadAIModels(){
     text.textContent = "AI 준비완료";
   }catch(e){
     console.warn("AI 로딩 실패(우회):", e);
-    // AI 실패해도 앱은 작동(수동모드/휴리스틱 우회)
     isAiReady = true;
     aiStatusText = "AI 실패(우회)";
     dot.className = "dot warn";
@@ -721,21 +854,20 @@ function refreshReady(){
 
   const readyForShot = (shotMode === "one") ? hasRef : (hasRef && hasOrig);
 
-  // AI가 완전히 로딩(또는 우회)되기 전에는 버튼에서 로딩 문구 유지
   if(!isAiReady){
     btn.disabled = true;
     btnText.textContent = "AI 로딩중…";
     return;
   }
 
-  // AI 로딩 완료 후에는 조건에 따라 활성화
   btn.disabled = !readyForShot;
   btnText.textContent = readyForShot ? "⚡ 분석 시작" : "사진을 넣어주세요";
 }
 
 /* =========================================================
    이미지 디코드 + 리사이즈
-   PATCH: createImageBitmap 실패 fallback 추가
+   - createImageBitmap 실패 fallback
+   - PATCH 2) EXIF Orientation 보정 적용
 ========================================================= */
 async function fileToHTMLImage(file){
   return await new Promise((resolve, reject)=>{
@@ -754,34 +886,78 @@ async function fileToHTMLImage(file){
 }
 
 async function decodeToImageBitmap(file){
-  // try createImageBitmap first
   try{
     if(typeof createImageBitmap === "function"){
       return await createImageBitmap(file);
     }
     throw new Error("createImageBitmap not available");
   }catch(e){
-    // fallback to HTMLImageElement
     console.warn("createImageBitmap 실패 → fallback(Image):", e);
     return await fileToHTMLImage(file);
   }
 }
 
-function drawScaledToImageData(bitmapOrImg, maxDim){
-  const w = bitmapOrImg.width;
-  const h = bitmapOrImg.height;
+function applyOrientationTransform(ctx, orientation, w, h){
+  // ctx는 이미 target canvas size로 세팅되어 있어야 함
+  // 참조: EXIF Orientation standard (1~8)
+  switch(orientation){
+    case 2: // flip horizontal
+      ctx.translate(w, 0); ctx.scale(-1, 1); break;
+    case 3: // rotate 180
+      ctx.translate(w, h); ctx.rotate(Math.PI); break;
+    case 4: // flip vertical
+      ctx.translate(0, h); ctx.scale(1, -1); break;
+    case 5: // transpose
+      ctx.rotate(0.5*Math.PI); ctx.scale(1, -1); break;
+    case 6: // rotate 90 CW
+      ctx.translate(w, 0); ctx.rotate(0.5*Math.PI); break;
+    case 7: // transverse
+      ctx.translate(w, 0); ctx.rotate(0.5*Math.PI); ctx.scale(-1, 1); break;
+    case 8: // rotate 90 CCW
+      ctx.translate(0, h); ctx.rotate(-0.5*Math.PI); break;
+    default:
+      break;
+  }
+}
 
-  const scale = Math.min(1, maxDim / Math.max(w, h));
-  const tw = Math.max(1, Math.round(w * scale));
-  const th = Math.max(1, Math.round(h * scale));
+function drawScaledToImageData(bitmapOrImg, maxDim, orientation=1){
+  const ow = bitmapOrImg.width;
+  const oh = bitmapOrImg.height;
+
+  const swapWH = (orientation>=5 && orientation<=8);
+  const rw = swapWH ? oh : ow;
+  const rh = swapWH ? ow : oh;
+
+  const scale = Math.min(1, maxDim / Math.max(rw, rh));
+  const tw = Math.max(1, Math.round(rw * scale));
+  const th = Math.max(1, Math.round(rh * scale));
 
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d", {willReadFrequently:true});
   canvas.width = tw; canvas.height = th;
+
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0,0,tw,th);
-  ctx.drawImage(bitmapOrImg, 0,0,tw,th);
+
+  // orientation을 고려해 “원본을 tw/th에 맞게” 그리기 위한 변환
+  // drawImage 기준 좌표계는 변환 후에 적용되므로, 변환 케이스별로 그리는 W/H가 달라짐
+  ctx.save();
+  applyOrientationTransform(ctx, orientation, tw, th);
+
+  // 변환 상태에서 drawImage 크기 지정
+  if(swapWH){
+    // 회전된 상태: drawImage는 (th, tw) 공간으로 들어가야 자연스럽게 맞음
+    ctx.drawImage(bitmapOrImg, 0, 0, th, tw);
+  }else{
+    ctx.drawImage(bitmapOrImg, 0, 0, tw, th);
+  }
+
+  ctx.restore();
+  ctx.restore();
+
   return ctx.getImageData(0,0,tw,th);
 }
 
@@ -793,7 +969,6 @@ function curve5ToLUT(curve5){
   const ys = xs.map(x => clamp(Math.round(curve5[x]), 0, 255));
   const lut = new Uint8Array(256);
 
-  // piecewise linear
   for(let i=0;i<xs.length-1;i++){
     const x0=xs[i], x1=xs[i+1];
     const y0=ys[i], y1=ys[i+1];
@@ -803,7 +978,6 @@ function curve5ToLUT(curve5){
       lut[x] = clamp(Math.round(lerp(y0, y1, t)), 0, 255);
     }
   }
-  // enforce monotonic
   for(let i=1;i<256;i++){
     if(lut[i] < lut[i-1]) lut[i] = lut[i-1];
   }
@@ -819,12 +993,10 @@ function applyFujiOverlay(analysis, presetKey, strength01){
   }
   const p = FUJI_PRESETS[presetKey];
 
-  // 1) Contrast/Sat/Tone: -4~+4
   const outContrast = clamp(Math.round(lerp(analysis.contrast, p.contrast, strength01)), -4, 4);
   const outSat      = clamp(Math.round(lerp(analysis.sat,      p.sat,      strength01)), -4, 4);
   const outTone     = clamp(Math.round(lerp(analysis.tone,     p.tone,     strength01)), -4, 4);
 
-  // 2) Tone LUT
   const pLUT = curve5ToLUT(p.curve5);
   const outLUT = new Uint8Array(256);
   for(let i=0;i<256;i++){
@@ -834,7 +1006,6 @@ function applyFujiOverlay(analysis, presetKey, strength01){
     if(outLUT[i] < outLUT[i-1]) outLUT[i] = outLUT[i-1];
   }
 
-  // 3) 6축 (H/S/L: -30~+30)
   const outAxes = analysis.axes.map(ax=>{
     const key = ax.axis;
     const pa = p.axes[key];
@@ -847,8 +1018,6 @@ function applyFujiOverlay(analysis, presetKey, strength01){
     };
   });
 
-  // 4) Base: 텍스트는 “분석 추천”을 우선 유지하되, 프리셋 켰으면 "분석 + 프리셋" 형태로 표시
-  const outBase = analysis.base;
   const baseHint = `${analysis.base} + ${p.name} ${Math.round(strength01*100)}%`;
 
   return {
@@ -864,6 +1033,7 @@ function applyFujiOverlay(analysis, presetKey, strength01){
 
 /* =========================================================
    Worker (1장/2장 모두 지원)
+   PATCH 3) 스트라이드 샘플링 + WB(K/Shift) 추천 계산 추가
 ========================================================= */
 function initWorker(){
   if(worker) return;
@@ -889,6 +1059,61 @@ function initWorker(){
       return [h*360, s, l];
     }
 
+    // sRGB -> linear
+    function srgbToLin(u){
+      u/=255;
+      return (u <= 0.04045) ? (u/12.92) : Math.pow((u+0.055)/1.055, 2.4);
+    }
+
+    // linear RGB -> XYZ (D65) (sRGB primaries)
+    function linRgbToXyz(lr,lg,lb){
+      const X = lr*0.4124564 + lg*0.3575761 + lb*0.1804375;
+      const Y = lr*0.2126729 + lg*0.7151522 + lb*0.0721750;
+      const Z = lr*0.0193339 + lg*0.1191920 + lb*0.9503041;
+      return [X,Y,Z];
+    }
+
+    // McCamy approx CCT from xy
+    function xyToCct(x,y){
+      // avoid div0
+      const n = (x - 0.3320) / (y - 0.1858 + 1e-9);
+      const cct = 449*n*n*n + 3525*n*n + 6823.3*n + 5520.33;
+      return cct;
+    }
+
+    // tint proxy: deviation in u,v from D65 white (not perfect; practical heuristic)
+    function xyToUv(x,y){
+      const denom = (-2*x + 12*y + 3);
+      const u = (4*x) / (denom + 1e-9);
+      const v = (9*y) / (denom + 1e-9);
+      return [u,v];
+    }
+
+    // WB Shift heuristic to Canon A/B & G/M steps (rough)
+    function wbShiftFromUv(u,v){
+      // D65 u,v approx
+      const u0 = 0.1978398, v0 = 0.4683363;
+      const du = u - u0;
+      const dv = v - v0;
+
+      // Heuristic mapping:
+      // - du mainly acts like A/B (warm/cool)
+      // - dv mainly acts like G/M (green/magenta)
+      // scale to "steps" roughly within [-9..+9]
+      let ab = clamp(Math.round(-du * 250), -9, 9); // du+ => cooler => push A? (sign tuned)
+      let gm = clamp(Math.round(dv * 250), -9, 9);
+
+      // label
+      const abLabel = (ab>0) ? ("A" + ab) : (ab<0 ? ("B" + (-ab)) : "0");
+      const gmLabel = (gm>0) ? ("G" + gm) : (gm<0 ? ("M" + (-gm)) : "0");
+
+      // crude reliability from distance magnitude (too tiny => unreliable)
+      const mag = Math.sqrt(du*du + dv*dv);
+      const rel = clamp((mag*120), 0.15, 1.0);
+
+      return {ab, gm, abLabel, gmLabel, rel};
+    }
+
     function circularHueDiff(h2,h1){
       let d=(h2-h1)%360;
       if(d>180) d-=360;
@@ -896,10 +1121,11 @@ function initWorker(){
       return d;
     }
 
-    function luminanceHistFromRGBA(rgba){
+    function luminanceHistFromRGBA(rgba, stridePx){
       const hist = new Uint32Array(256);
       let total=0, tooDark=0, tooBright=0;
-      for(let i=0;i<rgba.length;i+=4){
+      const step = 4 * Math.max(1, stridePx|0);
+      for(let i=0;i<rgba.length;i+=step){
         const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
         const lum = (0.299*r + 0.587*g + 0.114*b) | 0;
         hist[lum]++; total++;
@@ -958,7 +1184,7 @@ function initWorker(){
       return {lut: out, strength, liftPx, isLifted: strength>=0.20};
     }
 
-    function getColorAxesDataWeighted(rgba){
+    function getColorAxesDataWeighted(rgba, stridePx){
       const buckets = {
         R:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
         Y:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
@@ -971,7 +1197,9 @@ function initWorker(){
       let valid=0;
       let sumS=0, sumTone=0, toneN=0;
 
-      for(let i=0;i<rgba.length;i+=4){
+      const step = 4 * Math.max(1, stridePx|0);
+
+      for(let i=0;i<rgba.length;i+=step){
         const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
         const hsl = rgbToHsl(r,g,b);
         let h=hsl[0], s=hsl[1], l=hsl[2];
@@ -1043,11 +1271,64 @@ function initWorker(){
       return {base:"표준 (Standard)", reason:"범용"};
     }
 
-    self.onmessage = (e)=>{
-      const {origRGBA, refRGBA, hasOrig, aiType, mode} = e.data;
+    // WB 분석: 평균 XYZ -> xy -> CCT + Shift proxy
+    function estimateWB(rgba, stridePx){
+      const step = 4 * Math.max(1, stridePx|0);
+      let sumX=0, sumY=0, sumZ=0;
+      let n=0;
 
-      const r = luminanceHistFromRGBA(refRGBA);
-      const o = hasOrig ? luminanceHistFromRGBA(origRGBA) : uniformHist();
+      // 중간톤 가중: 너무 어둡거나 너무 밝은 픽셀은 제외(화이트/블랙 클립 방지)
+      for(let i=0;i<rgba.length;i+=step){
+        const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
+        const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+        if(lum < 18 || lum > 245) continue;
+
+        const lr = srgbToLin(r);
+        const lg = srgbToLin(g);
+        const lb = srgbToLin(b);
+        const xyz = linRgbToXyz(lr,lg,lb);
+        sumX += xyz[0]; sumY += xyz[1]; sumZ += xyz[2];
+        n++;
+      }
+
+      if(n < 300){
+        return {ok:false, kelvin: 0, abLabel:"0", gmLabel:"0", reliability:0.15, note:"샘플 부족(저채도/극단 노출)"};
+      }
+
+      const X = sumX/n, Y = sumY/n, Z = sumZ/n;
+      const denom = (X+Y+Z) + 1e-9;
+      const x = X/denom;
+      const y = Y/denom;
+
+      let cct = xyToCct(x,y);
+      if(!isFinite(cct)) cct = 5200;
+      cct = clamp(Math.round(cct/10)*10, 2000, 10000);
+
+      const uv = xyToUv(x,y);
+      const sh = wbShiftFromUv(uv[0], uv[1]);
+
+      // reliability: 샘플 수 + shift magnitude 둘 다 고려
+      const relN = clamp(n / 6000, 0.20, 1.0);
+      const reliability = clamp(0.55*relN + 0.45*sh.rel, 0.20, 1.0);
+
+      return {
+        ok:true,
+        kelvin: cct,
+        ab: sh.ab, gm: sh.gm,
+        abLabel: sh.abLabel,
+        gmLabel: sh.gmLabel,
+        reliability,
+        note: "타겟 평균 기반(참고값)"
+      };
+    }
+
+    self.onmessage = (e)=>{
+      const {origRGBA, refRGBA, hasOrig, aiType, mode, stridePx} = e.data;
+
+      const stride = Math.max(1, stridePx|0);
+
+      const r = luminanceHistFromRGBA(refRGBA, stride);
+      const o = hasOrig ? luminanceHistFromRGBA(origRGBA, stride) : uniformHist();
 
       const cdfR = cdfFromHist(r.hist, r.total);
       const cdfO = cdfFromHist(o.hist, o.total);
@@ -1065,17 +1346,17 @@ function initWorker(){
       const rRange = Math.max(1, rP95 - rP05);
       let contrast = clamp(Math.round(((rRange/oRange)-1)*6), -4, 4);
 
-      const cR = getColorAxesDataWeighted(refRGBA);
+      const cR = getColorAxesDataWeighted(refRGBA, stride);
       const axesR = cR.axes;
 
-      // PATCH(보수화): 1장 모드 중립 S를 0.42로
-      const axesO = hasOrig ? getColorAxesDataWeighted(origRGBA).axes : {
-        R:{H:0,S:0.42,L:0.50,count:9999},
-        Y:{H:60,S:0.42,L:0.50,count:9999},
-        G:{H:120,S:0.42,L:0.50,count:9999},
-        C:{H:180,S:0.42,L:0.50,count:9999},
-        B:{H:240,S:0.42,L:0.50,count:9999},
-        M:{H:300,S:0.42,L:0.50,count:9999},
+      // 1장 모드 중립 축 보수화: S=0.24 (이전 0.42보다 중립에 가까움)
+      const axesO = hasOrig ? getColorAxesDataWeighted(origRGBA, stride).axes : {
+        R:{H:0,S:0.24,L:0.50,count:9999},
+        Y:{H:60,S:0.24,L:0.50,count:9999},
+        G:{H:120,S:0.24,L:0.50,count:9999},
+        C:{H:180,S:0.24,L:0.50,count:9999},
+        B:{H:240,S:0.24,L:0.50,count:9999},
+        M:{H:300,S:0.24,L:0.50,count:9999},
       };
 
       const keys = ['R','Y','G','C','B','M'];
@@ -1118,6 +1399,9 @@ function initWorker(){
       if(brightRatio > 0.35) warnings.push("타겟이 매우 밝습니다(명부 비중↑). 톤커브가 단순화될 수 있습니다.");
       if(cR.validColored < 1500) warnings.push("유효 색상 데이터가 부족합니다(저채도/무채색). 6색축은 참고용입니다.");
 
+      // WB estimate from ref only
+      const wb = estimateWB(refRGBA, stride);
+
       self.postMessage({
         ok:true,
         contrast,
@@ -1128,7 +1412,8 @@ function initWorker(){
         base: baseRec.base,
         baseReason: baseRec.reason,
         axes: axesOut,
-        warnings
+        warnings,
+        wb
       });
     };
   `;
@@ -1157,13 +1442,15 @@ async function detectAiType(){
     return {type:"standard", note:`AI: 일반(${preds[0].className})`};
   }catch(e){
     console.warn("AI 판별 실패:", e);
-    return {type:"fallback", note:"AI 판별 실패(우회)"};
+    return {type:"fallback", note:"AI 판별 실패(우회)"}; 
   }
 }
 
 /* =========================================================
    분석 메인
-   PATCH: 2장 모드에서도 AI가 "타겟(ref)"을 보고 판별하도록 순서 수정
+   - PATCH: EXIF orientation 적용
+   - PATCH: stride 샘플링 값 전달
+   - WB 제안 포함
 ========================================================= */
 async function analyzeAll(){
   const btn = document.getElementById("btnAnalyze");
@@ -1182,28 +1469,34 @@ async function analyzeAll(){
   btn.disabled = true;
   spin.style.display = "inline-block";
   btnText.textContent = "분석 중…";
-
   document.getElementById("resultCard").classList.add("hide");
 
   try{
     const maxDim = parseInt(document.getElementById("maxDim").value, 10);
 
-    // 1) 타겟(ref) 먼저 draw (canvas = ref)
-    const bmR = await decodeToImageBitmap(refFileState);
-    const idR = drawScaledToImageData(bmR, maxDim);
+    // 샘플링 스트라이드(픽셀 단위): 모바일 안정성을 우선
+    // 1024: 10 / 1280: 8 정도가 무난
+    const stridePx = (maxDim >= 1280) ? 8 : 10;
 
-    // 2) PATCH: 여기서 AI 판별(타겟을 보고 판별)
+    // 1) 타겟(ref) 먼저 draw (canvas = ref)
+    const refOri = await getExifOrientation(refFileState);
+    const bmR = await decodeToImageBitmap(refFileState);
+    const idR = drawScaledToImageData(bmR, maxDim, refOri);
+
+    // 2) 타겟을 보고 AI 판별
     const ai = await detectAiType();
     const aiType = (userMode==="auto") ? (ai.type==="manual" ? "fallback" : ai.type) : "fallback";
 
-    // 3) 2장 모드면 원본(orig)을 draw해서 idO 추출 (canvas는 덮어써도 OK)
+    // 3) 2장 모드면 원본(orig) draw해서 idO 추출
     let idO = null;
+    let origOri = 1;
     if(shotMode === "two"){
+      origOri = await getExifOrientation(origFileState);
       const bmO = await decodeToImageBitmap(origFileState);
-      idO = drawScaledToImageData(bmO, maxDim);
+      idO = drawScaledToImageData(bmO, maxDim, origOri);
     }
 
-    // worker compute
+    // worker compute (transfer)
     const refBuf = idR.data.buffer;
     const hasOrig = (shotMode==="two");
     const origBuf = hasOrig ? idO.data.buffer : null;
@@ -1224,14 +1517,16 @@ async function analyzeAll(){
           refRGBA: new Uint8ClampedArray(refBuf),
           hasOrig: true,
           aiType,
-          mode: userMode
+          mode: userMode,
+          stridePx
         }, [origBuf, refBuf]);
       }else{
         worker.postMessage({
           refRGBA: new Uint8ClampedArray(refBuf),
           hasOrig: false,
           aiType,
-          mode: userMode
+          mode: userMode,
+          stridePx
         }, [refBuf]);
       }
     });
@@ -1240,7 +1535,8 @@ async function analyzeAll(){
 
     // Fuji overlay (B안)
     const presetKey = document.getElementById("fujiPreset").value;
-    const strength01 = (presetKey === "off") ? 0 : (parseInt(document.getElementById("presetStrength").value, 10) / 100);
+    const strengthUI = parseInt(document.getElementById("presetStrength").value, 10);
+    const strength01 = (presetKey === "off" || strengthUI===0) ? 0 : (strengthUI / 100);
 
     const analysis = {
       contrast: result.contrast,
@@ -1252,7 +1548,8 @@ async function analyzeAll(){
       base: result.base,
       baseReason: result.baseReason,
       warnings: result.warnings || [],
-      baseHint: result.base
+      baseHint: result.base,
+      wb: result.wb || {ok:false, kelvin:0, abLabel:"0", gmLabel:"0", reliability:0.2, note:"-" }
     };
 
     const finalRes = applyFujiOverlay(analysis, presetKey, strength01);
@@ -1278,16 +1575,24 @@ async function analyzeAll(){
 
     const shotLabel = (shotMode==="one") ? "1장(타겟만)" : "2장(원본+타겟)";
 
-    const presetLabel = (presetKey==="off")
+    const presetLabel = (presetKey==="off" || strength01===0)
       ? "Fuji Overlay: OFF"
       : `Fuji Overlay: ${FUJI_PRESETS[presetKey].name} (${Math.round(strength01*100)}%)`;
 
+    // WB text
+    const wb = finalRes.wb || analysis.wb;
+    const wbText = wb?.ok
+      ? `K ${wb.kelvin} · Shift ${wb.abLabel} / ${wb.gmLabel}`
+      : `WB 분석 불가(참고용)`;
+    const wbRel = wb?.ok ? `${Math.round((wb.reliability||0.2)*100)}%` : "낮음";
+
     summaryText =
-`[Canon Picture Style Recipe - SUMMARY v9.1 PATCHED]
+`[Canon Recipe - SUMMARY v9.2 WB+EXIF PATCHED]
 - Shot: ${shotLabel}
 - Mode: ${modeLabel}
 - ${presetLabel}
 
+0) WB Suggest: ${wbText} (Rel ${wbRel})
 1) Base: ${finalRes.baseHint}
 2) Basic: Contrast ${finalRes.contrast}, Saturation ${finalRes.sat}, ColorTone ${finalRes.tone}
 3) ToneCurve(5pt, IN→OUT):
@@ -1302,29 +1607,35 @@ ${axesText}
 
     fullText =
 `==================================================
- 📷 CANON PICTURE STYLE - RECIPE REPORT (v9.1 PATCHED)
+ 📷 CANON RECIPE REPORT (v9.2 WB+EXIF PATCHED)
 ==================================================
 * Shot: ${shotLabel}
 * Mode: ${modeLabel}
 * ${presetLabel}
 
-${warnBlock}[ 0) 추천 베이스 ]
+${warnBlock}[ 0) WB Suggest (Target Avg) ]
+▶ ${wbText}
+▶ Reliability: ${wbRel}
+▶ Note: ${(wb && wb.note) ? wb.note : "-"}
+
+--------------------------------------------------
+[ 1) 추천 베이스 ]
 ▶ Base: ${finalRes.baseHint}
 ▶ Reason(분석): ${analysis.baseReason}
 
 --------------------------------------------------
-[ 1) Basic Settings ]
+[ 2) Basic Settings ]
 ▶ Contrast   : ${finalRes.contrast}
 ▶ Saturation : ${finalRes.sat}
 ▶ Color Tone : ${finalRes.tone}
 ▶ Black Lift : ${finalRes.lift.isLifted ? "감지됨" : "약함/없음"} (강도 ${Math.round(finalRes.lift.strength*100)}%, +${finalRes.lift.liftPx}px)
 
 --------------------------------------------------
-[ 2) Tone Curve (IN → OUT) ]
+[ 3) Tone Curve (IN → OUT) ]
 ${pts.map(p=>`• IN ${p.x}  →  OUT ${p.y}`).join("\n")}
 
 --------------------------------------------------
-[ 3) Specific Colors (6-axis H/S/L) ]
+[ 4) Specific Colors (6-axis H/S/L) ]
 ${finalRes.axes.map(a=>{
   const H = (a.canonH>0?`+${a.canonH}`:`${a.canonH}`);
   const S = (a.canonS>0?`+${a.canonS}`:`${a.canonS}`);
@@ -1345,6 +1656,11 @@ ${finalRes.axes.map(a=>{
     document.getElementById("sumLift").textContent = finalRes.lift.isLifted ? "감지됨" : "없음";
     document.getElementById("sumLift").className = "v " + (finalRes.lift.isLifted ? "warn" : "ok");
 
+    document.getElementById("sumWB").textContent = wbText;
+    document.getElementById("sumWB2").textContent = wbText;
+    document.getElementById("sumWBRel").textContent = wbRel;
+    document.getElementById("sumWBRel").className = "v " + ((wb && wb.ok && wb.reliability>=0.6) ? "ok" : "warn");
+
     document.getElementById("sumCurve").textContent = curveMultiline;
     document.getElementById("sumColors").textContent = axesText;
 
@@ -1359,7 +1675,16 @@ ${finalRes.axes.map(a=>{
     document.getElementById("resultCard").scrollIntoView({behavior:"smooth"});
   }catch(e){
     console.error(e);
-    alert("분석 중 오류가 발생했습니다.\n- 이미지가 손상되었거나\n- 브라우저에서 Worker/ImageBitmap 제한이 있을 수 있습니다.\n다른 이미지로 재시도해 주세요.");
+    const msg =
+`분석 중 오류가 발생했습니다.
+
+가능 원인:
+- HEIC/HEIF(아이폰 원본) → 브라우저 미지원일 수 있음 (JPG로 변환 후 재시도)
+- 이미지 손상
+- 브라우저에서 Worker/ImageBitmap 제한
+
+다른 이미지로 재시도해 주세요.`;
+    alert(msg);
   }finally{
     spin.style.display = "none";
     refreshReady();
@@ -1409,14 +1734,12 @@ window.onload = ()=>{
 
   initWorker();
   updateStrengthLabel();
-  updatePresetLabel(); // PATCH: slider enable/disable 포함
+  updatePresetLabel();
 
-  // default: 1장 모드
   setShot("one");
   setMode("auto");
   setTab("sum");
 
-  // AI load
   loadAIModels();
   refreshReady();
 };
