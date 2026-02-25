@@ -3,180 +3,273 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Canon 레시피 & LUT 제네레이터 (v8.2 Quick/Pro)</title>
+  <title>Canon Recipe & Fuji Preset Overlay (v9.0 FINAL)</title>
 
+  <!-- AI (옵션 / 자동 모드에서만 사용) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
 
   <style>
     :root{
-      --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --text:#f8fafc;
-      --line:#334155; --brand:#ff3f34; --ok:#10b981; --warn:#f59e0b;
+      --bg:#0b1020; --card:#121a33; --muted:#94a3b8; --text:#f1f5f9;
+      --line:#263456; --brand:#ff3f34; --ok:#10b981; --warn:#f59e0b;
       --cyan:#06b6d4; --black:#020617; --radius: 16px;
     }
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     body{
-      margin:0; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-      background: var(--bg); color:var(--text); padding: 16px; line-height: 1.5;
+      margin:0; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+      background: radial-gradient(1100px 520px at 15% 0%, rgba(255,63,52,0.16), transparent 60%),
+                  radial-gradient(900px 520px at 85% 0%, rgba(6,182,212,0.16), transparent 60%),
+                  var(--bg);
+      color:var(--text);
+      padding: 16px;
+      line-height: 1.5;
     }
-    .app{ max-width: 1000px; margin: 0 auto; padding-bottom: 40px; }
+    .app{ max-width: 1020px; margin: 0 auto; padding-bottom: 48px; }
 
-    .header{ display:flex; flex-direction:column; gap:12px; margin-bottom:20px; }
-    .title h1{ margin:0; font-size:20px; letter-spacing:-0.5px; }
-    .title p{ margin:4px 0 0; color:var(--muted); font-size:13px; word-break: keep-all; }
+    .header{ display:flex; flex-direction:column; gap:10px; margin-bottom:18px; }
+    .title h1{ margin:0; font-size:20px; letter-spacing:-0.4px; }
+    .title p{ margin:6px 0 0; color:var(--muted); font-size:13px; word-break: keep-all; }
 
     .badges{ display:flex; gap:8px; flex-wrap:wrap; }
     .badge{
-      border:1px solid var(--line); background:rgba(30,41,59,0.7);
-      padding:6px 12px; border-radius:999px; font-size:11px; font-weight:700;
+      border:1px solid var(--line); background: rgba(18,26,51,0.7);
+      padding:6px 12px; border-radius:999px; font-size:11px; font-weight:800;
       display:flex; gap:6px; align-items:center;
     }
     .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted); }
     .dot.ok{ background:var(--ok); } .dot.warn{ background:var(--warn); }
 
     .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-    @media (max-width: 800px){ .grid{ grid-template-columns:1fr; } }
+    @media (max-width: 860px){ .grid{ grid-template-columns:1fr; } }
 
     .card{
-      background: var(--card); border:1px solid var(--line); border-radius:var(--radius);
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); overflow:hidden;
+      background: rgba(18,26,51,0.86);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow: 0 12px 26px rgba(0,0,0,0.34);
+      overflow:hidden;
     }
     .card-h{
-      padding:16px; display:flex; align-items:center; justify-content:space-between;
-      border-bottom:1px solid var(--line); background: rgba(15,23,42,0.4);
-      gap:10px; flex-wrap:wrap;
+      padding:14px 16px;
+      display:flex; align-items:center; justify-content:space-between;
+      border-bottom:1px solid var(--line);
+      background: rgba(2,6,23,0.35);
     }
-    .card-h strong{ font-size:15px; }
+    .card-h strong{ font-size:14px; }
     .step{
-      font-size:12px; color:var(--muted); padding:4px 10px; border:1px solid var(--line);
-      border-radius:999px; background:var(--bg); font-weight:700;
+      font-size:12px; color:var(--muted);
+      padding:4px 10px; border:1px solid var(--line);
+      border-radius:999px; background: rgba(2,6,23,0.35);
+      font-weight:900;
+      white-space:nowrap;
     }
     .card-b{ padding:16px; }
 
-    .uploader{ display:flex; flex-direction:column; gap:12px; }
+    .seg{
+      border:1px solid var(--line);
+      background: rgba(2,6,23,0.25);
+      padding:12px;
+      border-radius:14px;
+      margin-bottom:12px;
+    }
+    .seg .label{ color:var(--muted); font-size:12px; font-weight:900; margin-bottom:8px; }
+    .chips{ display:flex; flex-wrap:wrap; gap:8px; }
+    .chip{
+      border:1px solid var(--line);
+      background: rgba(18,26,51,0.9);
+      color: var(--text);
+      padding:10px 14px;
+      border-radius:999px;
+      font-size:13px;
+      font-weight:900;
+      cursor:pointer;
+      transition:0.15s;
+      flex: 1 1 auto;
+      text-align:center;
+      user-select:none;
+    }
+    .chip.active{
+      border-color: var(--brand);
+      background: rgba(255,63,52,0.15);
+      color: #ff8b86;
+      box-shadow: 0 0 0 2px rgba(255,63,52,0.10) inset;
+    }
 
+    .uploader{ display:flex; flex-direction:column; gap:12px; }
     .drop{
-      border:2px dashed var(--line); background: rgba(15,23,42,0.5); border-radius:12px;
-      padding:18px; transition: 0.2s; cursor:pointer; min-height: 150px;
-      display:flex; flex-direction:column; gap:8px; justify-content:center; align-items:center; text-align:center;
+      border:2px dashed var(--line);
+      background: rgba(2,6,23,0.25);
+      border-radius:14px;
+      padding:18px;
+      transition: 0.15s;
+      cursor:pointer;
+      min-height: 140px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      justify-content:center;
+      align-items:center;
+      text-align:center;
       position:relative;
+      overflow:hidden;
     }
-    .drop:active{ background:rgba(255,63,52,0.1); border-color:var(--brand); }
-    .drop.dragover{ border-color: var(--ok); background: rgba(16,185,129,0.1); }
-    .drop .label{ font-weight:900; font-size:14px; }
-    .drop .hint{
-      color:var(--muted); font-size:12px; line-height:1.45; max-width: 360px;
-    }
+    .drop.dragover{ border-color: var(--ok); background: rgba(16,185,129,0.10); }
+    .drop .label{ font-weight:950; font-size:14px; }
+    .drop .hint{ color:var(--muted); font-size:12px; line-height:1.45; }
     .drop input{ display:none; }
     .thumb{
-      width:100%; display:none; border-radius:8px; max-height:140px; object-fit:cover;
+      width:100%;
+      display:none;
+      border-radius:10px;
+      max-height:140px;
+      object-fit:cover;
       border:1px solid var(--line);
     }
     .filename{
-      font-size:12px; color: var(--cyan); font-weight:900; display:none; word-break:break-all;
+      font-size:12px;
+      color: var(--cyan);
+      font-weight:900;
+      display:none;
+      word-break:break-all;
     }
+
+    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 12px; }
+    .kv{
+      flex:1;
+      display:flex; justify-content:space-between; align-items:center;
+      font-size:13px;
+      border:1px solid var(--line);
+      background: rgba(2,6,23,0.25);
+      padding:10px 12px;
+      border-radius:12px;
+      gap:10px;
+    }
+    .kv b{ font-weight:950; }
+    .kv select, .kv input[type="range"]{
+      width: 54%;
+      background: rgba(18,26,51,0.9);
+      border:1px solid var(--line);
+      color:var(--text);
+      border-radius:10px;
+      padding:8px 10px;
+      outline:none;
+      font-weight:800;
+    }
+    .kv .val{ color: var(--cyan); font-weight:950; white-space:nowrap; }
 
     .btn{
-      border:0; border-radius:12px; padding:16px; font-weight:900; cursor:pointer;
-      transition:0.2s; font-size:14px; width: 100%;
-      display: flex; justify-content: center; align-items: center; gap:8px;
+      border:0;
+      border-radius:14px;
+      padding:16px;
+      font-weight:950;
+      cursor:pointer;
+      transition:0.15s;
+      font-size:14px;
+      width: 100%;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      gap:10px;
     }
     .btn.primary{ background: var(--brand); color:white; }
-    .btn.primary:active{ filter: brightness(0.9); transform: scale(0.98); }
-    .btn.ghost{ background: rgba(30,41,59,0.8); border:1px solid var(--line); color: var(--text); }
-    .btn.lut{ background: var(--cyan); color: #000; }
-    .btn:disabled{ opacity:0.4; cursor:not-allowed; transform:none !important; }
+    .btn.primary:active{ filter: brightness(0.92); transform: scale(0.985); }
+    .btn.ghost{ background: rgba(2,6,23,0.25); border:1px solid var(--line); color: var(--text); }
+    .btn.lut{ background: var(--cyan); color: #001018; }
+    .btn:disabled{ opacity:0.45; cursor:not-allowed; transform:none !important; }
 
     .mini{
-      color:var(--muted); font-size:12px; border:1px solid var(--line);
-      background: var(--bg); padding:12px; border-radius:10px;
-      word-break: keep-all; line-height: 1.55;
+      color:var(--muted);
+      font-size:12px;
+      border:1px solid var(--line);
+      background: rgba(2,6,23,0.25);
+      padding:12px;
+      border-radius:12px;
+      word-break: keep-all;
+      line-height: 1.55;
     }
 
-    .seg{
-      display:flex; flex-direction:column; gap:8px;
-      border:1px solid var(--line); background: var(--bg); padding:12px;
-      border-radius:12px; margin-bottom: 12px;
-    }
-    .seg .label{ color:var(--muted); font-size:12px; font-weight:900; }
-
-    .chips{ display:flex; flex-wrap:wrap; gap:6px; }
-    .chip{
-      border:1px solid var(--line); background: var(--card); color: var(--text);
-      padding:10px 14px; border-radius:999px; font-size:13px; font-weight:900;
-      cursor:pointer; transition:0.2s; flex-grow: 1; text-align: center; user-select:none;
-    }
-    .chip.active{ border-color: var(--brand); background: rgba(255,63,52,0.15); color: #ff6b6b; }
-    .chip.okActive{ border-color: var(--ok); box-shadow: 0 0 0 2px rgba(16,185,129,0.12) inset; color: var(--ok); }
-    .chip.warnActive{ border-color: var(--warn); box-shadow: 0 0 0 2px rgba(245,158,11,0.12) inset; color: var(--warn); }
-
-    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 12px;}
-    .kv{
-      flex:1; display:flex; justify-content:space-between; align-items:center;
-      font-size:13px; border:1px solid var(--line); background: var(--bg);
-      padding:10px 14px; border-radius:12px; gap:10px;
-    }
-    .kv select{
-      background: var(--card); border:1px solid var(--line); color:var(--text);
-      border-radius:8px; padding:8px; outline:none; font-weight:800;
-    }
-
+    /* Tabs */
     .tabs{
-      display:flex; gap:8px; border:1px solid var(--line); background: var(--bg);
-      padding:8px; border-radius:14px; align-items:center; justify-content:space-between;
-      flex-wrap:wrap; margin-top:16px;
+      display:flex; gap:8px;
+      border:1px solid var(--line);
+      background: rgba(2,6,23,0.25);
+      padding:8px;
+      border-radius:14px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+      margin-top:14px;
     }
     .tabs .left{ display:flex; gap:8px; flex-wrap:wrap; }
     .tab{
-      border:1px solid var(--line); background: var(--card); color: var(--text);
-      padding:8px 14px; border-radius:999px; font-size:12px; font-weight:900;
-      cursor:pointer; transition:0.15s; user-select:none;
+      border:1px solid var(--line);
+      background: rgba(18,26,51,0.9);
+      color: var(--text);
+      padding:8px 14px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:950;
+      cursor:pointer;
+      transition:0.15s;
+      user-select:none;
     }
     .tab.active{
       border-color: var(--ok);
-      box-shadow: 0 0 0 2px rgba(16,185,129,0.15) inset;
       color: var(--ok);
+      box-shadow: 0 0 0 2px rgba(16,185,129,0.12) inset;
     }
     .tabHint{
-      color:var(--muted); font-size:12px; font-weight:900;
-      padding:6px 10px; border-radius:999px;
-      background: rgba(15,23,42,0.4); white-space:nowrap;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:900;
+      padding:6px 10px;
+      border-radius:999px;
+      background: rgba(2,6,23,0.35);
+      white-space:nowrap;
     }
 
-    .summaryCard{ display:grid; grid-template-columns:1fr; gap:10px; margin-top:12px;}
+    .summaryCard{ display:grid; grid-template-columns:1fr; gap:10px; margin-top:12px; }
     .pill{
-      border:1px solid var(--line); background: var(--bg);
-      border-radius:12px; padding:14px;
-      display:flex; justify-content:space-between; gap:10px; align-items:flex-start;
+      border:1px solid var(--line);
+      background: rgba(2,6,23,0.25);
+      border-radius:14px;
+      padding:14px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
     }
-    .pill .k{ color:var(--muted); font-size:12px; margin-bottom: 4px; font-weight:900;}
-    .pill .v{ font-weight:900; font-size: 14px; line-height: 1.4;}
+    .pill .k{ color:var(--muted); font-size:12px; margin-bottom:4px; }
+    .pill .v{ font-weight:950; font-size: 14px; line-height:1.4; }
     .pill .v.ok{ color:var(--ok); } .pill .v.warn{ color:var(--warn); } .pill .v.cyan{ color:var(--cyan); }
 
     .report{
-      margin-top:12px; background: var(--black); color: var(--ok);
-      border:1px solid rgba(16,185,129,0.3); border-radius:12px;
-      padding:16px; white-space:pre-wrap; font-family: ui-monospace, Menlo, Monaco, Consolas, "Courier New", monospace;
-      font-size:13px; overflow-x:auto; line-height:1.6;
+      margin-top:12px;
+      background: var(--black);
+      color: var(--ok);
+      border:1px solid rgba(16,185,129,0.32);
+      border-radius:14px;
+      padding:16px;
+      white-space:pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+      font-size:13px;
+      overflow-x:auto;
+      line-height:1.62;
     }
 
     .spinner{
       width:18px; height:18px; border-radius:50%;
-      border:2px solid rgba(255,255,255,0.3);
-      border-top-color: #fff; animation: spin 0.8s linear infinite; display:none;
+      border:2px solid rgba(255,255,255,0.25);
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+      display:none;
     }
     @keyframes spin{ to{ transform: rotate(360deg);} }
-    canvas{ display:none; }
 
-    .dim{ opacity:0.55; }
-    .tag{
-      display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:900;
-      padding:6px 10px; border-radius:999px; border:1px solid var(--line); background: rgba(15,23,42,0.35);
-      color: var(--muted);
-    }
-    .tag.ok{ color: var(--ok); border-color: rgba(16,185,129,0.35); }
-    .tag.warn{ color: var(--warn); border-color: rgba(245,158,11,0.35); }
+    .hide{ display:none !important; }
+    canvas{ display:none; }
   </style>
 </head>
 
@@ -184,16 +277,16 @@
   <div class="app">
     <div class="header">
       <div class="title">
-        <h1>📷 Recipe & 3D LUT 생성기 <span style="color:var(--cyan); font-size:14px;">v8.2 Quick/Pro</span></h1>
+        <h1>📷 Canon Recipe Generator <span style="color:var(--cyan); font-size:14px;">v9.0 FINAL</span></h1>
         <p>
-          <b>Quick(1장)</b>: 타겟만 넣고 빠르게 레시피/LUT 생성 · <b>Pro(2장)</b>: 오리지널+타겟 차이로 정밀 생성
+          ✅ <b>1장(타겟만) / 2장(원본+타겟)</b> 지원 · ✅ AI 자동(선택) · ✅ <b>Fuji Preset Overlay(B안)</b><br/>
+          “후지 룩을 캐논 PSE로?” → <b>분석 결과에 프리셋 감성을 ‘오버레이’</b> 하는 방식이 가장 안전하고 그럴듯합니다.
         </p>
       </div>
       <div class="badges">
         <div class="badge"><span id="dotAI" class="dot warn"></span><span id="aiText">AI 로딩중</span></div>
-        <div class="badge"><span id="dotOrig" class="dot"></span> 오리지널</div>
-        <div class="badge"><span id="dotRef" class="dot"></span> 타겟</div>
-        <div class="badge"><span id="dotReady" class="dot warn"></span><span id="readyText">준비 대기</span></div>
+        <div class="badge"><span id="dotO" class="dot"></span> 원본(선택)</div>
+        <div class="badge"><span id="dotR" class="dot"></span> 타겟(필수)</div>
       </div>
     </div>
 
@@ -201,20 +294,24 @@
       <!-- STEP 1 -->
       <div class="card">
         <div class="card-h">
-          <strong>STEP 1. 사진 선택</strong>
+          <strong>STEP 1. 사진 넣기</strong>
           <span class="step">1/3</span>
         </div>
         <div class="card-b">
-          <div class="uploader">
+          <div class="seg">
+            <div class="label">분석 방식</div>
+            <div class="chips">
+              <div class="chip active" data-shot="one" onclick="setShot('one')">1장 모드 (타겟만)</div>
+              <div class="chip" data-shot="two" onclick="setShot('two')">2장 모드 (원본+타겟)</div>
+            </div>
+          </div>
 
-            <div class="drop" id="dropOrig">
-              <div class="label">
-                1) 오리지널(선택)
-                <span class="tag" id="origTag">Pro 모드에서 권장</span>
-              </div>
-              <div class="hint" id="origHint">
-                <b>Pro(2장) 정밀 모드용</b> 기준 사진입니다.<br/>
-                같은 장소/피사체를 <b>기본 톤(표준/뉴트럴)</b>로 찍은 사진이 가장 좋습니다.
+          <div class="uploader">
+            <div class="drop hide" id="dropOrig">
+              <div class="label">원본 (추천: Standard/Neutral)</div>
+              <div class="hint">
+                같은 장소/피사체의 “기본 톤” 사진이 가장 좋습니다.<br/>
+                (예: 캐논 표준/뉴트럴로 찍은 원본)
               </div>
               <input id="origFile" type="file" accept="image/*"/>
               <img id="thumbOrig" class="thumb" alt="orig"/>
@@ -222,30 +319,20 @@
             </div>
 
             <div class="drop" id="dropRef">
-              <div class="label">
-                2) 타겟(필수)
-                <span class="tag ok">항상 필요</span>
-              </div>
-              <div class="hint" id="refHint">
-                <b>원하는 색감</b>(영화/필름/인스타 룩) 참고 사진을 넣으세요.<br/>
-                초보자는 <b>중간톤이 많고 너무 어둡지 않은 사진</b>이 결과가 안정적입니다.
+              <div class="label">타겟 (원하는 색감)</div>
+              <div class="hint">
+                만들고 싶은 영화/필름 느낌의 참고 사진.<br/>
+                <b>초보자 팁:</b> 중간톤이 많고(하늘/벽/피부) 과한 역광이 아닌 사진이 안정적입니다.
               </div>
               <input id="refFile" type="file" accept="image/*"/>
               <img id="thumbRef" class="thumb" alt="ref"/>
               <div id="fileRef" class="filename"></div>
             </div>
+          </div>
 
-            <div class="mini">
-              <b>📌 초보자용 사진 선택 가이드</b><br/>
-              • <b>Quick(1장)</b>: 타겟만 넣어도 됩니다. (내부 “중립 기준”으로 계산)<br/>
-              • <b>Pro(2장)</b>: 오리지널은 “현재 내 카메라 기본톤” 기준점입니다.<br/><br/>
-              <b>오리지널 추천 예시</b><br/>
-              - 같은 장소/피사체를 <b>표준(Standard) / 뉴트럴(Neutral)</b>로 촬영<br/>
-              - 노출 과하게 흔들린 사진, 심한 역광, 과한 색조명(클럽/네온)은 피하기<br/><br/>
-              <b>타겟 추천 예시</b><br/>
-              - “원하는 룩이 잘 나온 사진” (영화 스틸, 레퍼런스 샷, 본인 사진 등)
-            </div>
-
+          <div class="mini" style="margin-top:12px;">
+            <b>1장 모드(타겟만)</b>는 “대략적인 후지/영화 감성 레시피”를 빠르게 얻는 용도입니다.<br/>
+            <b>2장 모드</b>는 “내 원본 → 타겟” 매칭이라 더 정교합니다. (가능하면 2장 추천)
           </div>
         </div>
       </div>
@@ -253,26 +340,12 @@
       <!-- STEP 2 -->
       <div class="card">
         <div class="card-h">
-          <strong>STEP 2. 모드/분석</strong>
+          <strong>STEP 2. 분석 + Fuji 오버레이(B안)</strong>
           <span class="step">2/3</span>
         </div>
         <div class="card-b">
-          <!-- Quick / Pro -->
           <div class="seg">
-            <div class="label">작업 방식 선택 (터치)</div>
-            <div class="chips">
-              <div class="chip okActive" data-qpmode="quick" onclick="setQPMode('quick')">Quick (1장)</div>
-              <div class="chip" data-qpmode="pro" onclick="setQPMode('pro')">Pro (2장)</div>
-            </div>
-            <div class="mini" id="qpExplain" style="margin-top:6px;">
-              <b>Quick</b>: 타겟만으로 빠르게 생성 (대략 레시피, 초보 친화).<br/>
-              <b>Pro</b>: 오리지널↔타겟 차이로 정밀 생성 (추천).
-            </div>
-          </div>
-
-          <!-- Content mode -->
-          <div class="seg">
-            <div class="label">피사체 모드 (터치)</div>
+            <div class="label">분석 모드 (터치)</div>
             <div class="chips">
               <div class="chip active" data-mode="auto" onclick="setMode('auto')">AI 자동</div>
               <div class="chip" data-mode="portrait" onclick="setMode('portrait')">인물</div>
@@ -286,41 +359,65 @@
             <div class="kv">
               <b>해상도</b>
               <select id="maxDim">
-                <option value="1024" selected>1024px</option>
-                <option value="1280">1280px</option>
+                <option value="1024" selected>1024px (권장)</option>
+                <option value="1280">1280px (정밀)</option>
               </select>
+              <span class="val">리사이즈 분석</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="kv">
+              <b>Fuji 프리셋</b>
+              <select id="fujiPreset">
+                <option value="off" selected>Off (분석만)</option>
+                <option value="provia">Provia (표준/밸런스)</option>
+                <option value="astia">Astia (부드러운 인물)</option>
+                <option value="reala">Reala (자연스러운 컬러)</option>
+                <option value="reala_ace">Reala Ace (선명+피부 안정)</option>
+                <option value="velvia">Velvia (고채도 풍경)</option>
+                <option value="classic_chrome">Classic Chrome (저채도 시네마)</option>
+                <option value="classic_negative">Classic Negative (네거티브 감성)</option>
+              </select>
+              <span class="val" id="presetLabel">OFF</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="kv">
+              <b>프리셋 강도</b>
+              <input id="presetStrength" type="range" min="0" max="100" value="35" oninput="updateStrengthLabel()"/>
+              <span class="val" id="strengthLabel">35%</span>
             </div>
           </div>
 
           <button id="btnAnalyze" class="btn primary" onclick="analyzeAll()" disabled>
-            ⚡ 분석 시작 <span id="spin" class="spinner"></span>
+            <span id="btnText">AI 로딩중…</span>
+            <span id="spin" class="spinner"></span>
           </button>
 
           <div class="mini" style="margin-top:12px;">
-            <b>✅ 안정성</b><br/>
-            - 대용량 이미지도 최대 해상도로 축소 분석 (프리징 방지)<br/>
-            - 색상/톤 연산은 Web Worker에서 수행 (UI 멈춤 최소화)<br/>
-            - AI 로딩 실패 시에도 자동 우회 동작
+            <b>B안(Fuji 오버레이)</b> = (분석 결과)와 (후지 프리셋) 사이를 <b>강도%</b>로 섞습니다.<br/>
+            과하면 강도를 낮추세요. 대체로 <b>20~45%</b>가 제일 “그럴듯”합니다.
           </div>
         </div>
       </div>
 
       <!-- STEP 3 -->
-      <div class="card" style="grid-column: 1 / -1; display:none;" id="resultCard">
+      <div class="card hide" style="grid-column: 1 / -1;" id="resultCard">
         <div class="card-h">
           <strong>STEP 3. 결과</strong>
           <span class="step" style="color:var(--ok); border-color:var(--ok);">완료</span>
         </div>
         <div class="card-b">
           <div style="display:flex; flex-direction:column; gap:10px;">
-            <button id="btnLut" class="btn lut" onclick="downloadLUT()">🎬 3D LUT (.cube) 다운로드</button>
             <div style="display:flex; gap:10px;">
-              <button id="btnCopySummary" class="btn ghost" onclick="copySummary()" style="flex:1;">📋 요약 복사</button>
-              <button id="btnCopyFull" class="btn ghost" onclick="copyFull()" style="flex:1;">📋 전체 복사</button>
+              <button class="btn ghost" onclick="copySummary()" style="flex:1;">📋 요약 복사</button>
+              <button class="btn ghost" onclick="copyFull()" style="flex:1;">📋 전체 복사</button>
             </div>
           </div>
 
-          <div class="tabs" id="tabs">
+          <div class="tabs">
             <div class="left">
               <div class="tab active" data-tab="sum" onclick="setTab('sum')">요약 보기</div>
               <div class="tab" data-tab="full" onclick="setTab('full')">전체 보기</div>
@@ -339,25 +436,28 @@
                 <div class="v ok" id="sumBase">-</div>
               </div>
             </div>
+
             <div class="pill">
               <div>
-                <div class="k">대비(Contrast)</div>
-                <div class="v" id="sumContrast">-</div>
+                <div class="k">기본 조정</div>
+                <div class="v" id="sumBasic">-</div>
               </div>
               <div style="text-align:right;">
                 <div class="k">블랙 리프트</div>
                 <div class="v" id="sumLift">-</div>
               </div>
             </div>
+
             <div class="pill">
               <div>
-                <div class="k">톤 커브(Luminance)</div>
+                <div class="k">톤 커브 (IN → OUT)</div>
                 <div class="v" id="sumCurve" style="white-space:pre-wrap; font-size:13px;">-</div>
               </div>
             </div>
+
             <div class="pill">
               <div>
-                <div class="k">6색축(H/S/L)</div>
+                <div class="k">6색축 (H / S / L)</div>
                 <div class="v" id="sumColors" style="white-space:pre-wrap; font-size:13px;">-</div>
               </div>
             </div>
@@ -365,14 +465,13 @@
             <div class="mini">
               <b>📷 PSE 입력 순서 (요약)</b><br/>
               1) Base = <b id="sumBase2">-</b><br/>
-              2) Contrast = <b id="sumContrast2">-</b><br/>
-              3) Tone Curve = 위 5개 포인트 입력<br/>
-              4) Specific Colors = 6색축 수치 입력<br/><br/>
-              <b>팁</b>: Quick(1장)은 “대략값”이라, 결과가 과하면 색축(H/S/L)부터 한 단계씩 줄이는 게 정석입니다.
+              2) Contrast = <b id="sumC2">-</b> / Saturation = <b id="sumSat2">-</b> / Color Tone = <b id="sumTone2">-</b><br/>
+              3) Tone Curve = 5포인트 (IN → OUT) 입력<br/>
+              4) Specific Colors = 6색축 H/S/L 입력
             </div>
           </div>
 
-          <div id="fullBox" style="display:none; margin-top:12px;">
+          <div id="fullBox" class="hide">
             <div id="reportBox" class="report"></div>
           </div>
 
@@ -384,30 +483,113 @@
   </div>
 
 <script>
-/* =========================
+/* =========================================================
    상태
-========================= */
+========================================================= */
+let shotMode = "one";       // one | two
+let userMode = "auto";      // auto | portrait | landscape | snap | night
+let viewTab  = "sum";
+
 let origFileState = null;
-let refFileState = null;
+let refFileState  = null;
 
 let summaryText = "";
 let fullText = "";
-
-let globalToneLUT = null;
-let globalColorSliders = null;
 
 let worker = null;
 let faceModel = null;
 let classifyModel = null;
 let isAiReady = false;
+let aiStatusText = "AI 로딩중…";
 
-let userMode = "auto";    // auto/portrait/landscape/snap/night
-let qpMode   = "quick";   // quick/pro
-let viewTab  = "sum";
+/* =========================================================
+   Fuji Presets (스타팅 포인트)
+   - Canon PSE 범위(가정): Contrast/Sat/Tone: -4~+4, 6축 H/S/L: -30~+30
+========================================================= */
+const FUJI_PRESETS = {
+  off: null,
+  provia: {
+    name: "Provia",
+    base: "표준 (Standard)",
+    contrast: +1, sat: +1, tone: 0,
+    curve5: {0:0, 64:66, 128:128, 192:194, 255:255},
+    axes: {
+      R:{H:0,S:0,L:0}, Y:{H:0,S:0,L:0}, G:{H:0,S:0,L:0},
+      C:{H:0,S:0,L:0}, B:{H:0,S:-2,L:0}, M:{H:0,S:0,L:0},
+    }
+  },
+  astia: {
+    name: "Astia",
+    base: "인물사진 (Portrait) 또는 뉴트럴 (Neutral)",
+    contrast: -1, sat: +1, tone: +1,
+    curve5: {0:6, 64:78, 128:132, 192:198, 255:255},
+    axes: {
+      R:{H:+2,S:-6,L:+6}, Y:{H:-2,S:-6,L:+6}, G:{H:0,S:0,L:0},
+      C:{H:0,S:0,L:0},  B:{H:0,S:-6,L:0},  M:{H:0,S:0,L:0},
+    }
+  },
+  reala: {
+    name: "Reala",
+    base: "표준 (Standard)",
+    contrast: +1, sat: +1, tone: 0,
+    curve5: {0:2, 64:70, 128:130, 192:194, 255:255},
+    axes: {
+      R:{H:0,S:-2,L:+2}, Y:{H:0,S:-2,L:+2}, G:{H:0,S:0,L:0},
+      C:{H:0,S:0,L:0},   B:{H:0,S:-2,L:0},  M:{H:0,S:0,L:0},
+    }
+  },
+  reala_ace: {
+    name: "Reala Ace",
+    base: "표준 (Standard) / 인물사진 (Portrait)",
+    contrast: +2, sat: +1, tone: +1,
+    curve5: {0:2, 64:66, 128:128, 192:198, 255:255},
+    axes: {
+      R:{H:0,S:-2,L:+2}, Y:{H:0,S:-2,L:+2}, G:{H:0,S:0,L:0},
+      C:{H:0,S:0,L:0},   B:{H:0,S:-2,L:0},  M:{H:0,S:0,L:0},
+    }
+  },
+  velvia: {
+    name: "Velvia",
+    base: "풍경사진 (Landscape)",
+    contrast: +3, sat: +4, tone: -1,
+    curve5: {0:0, 64:58, 128:126, 192:206, 255:255},
+    axes: {
+      R:{H:0,S:+6,L:0},  Y:{H:0,S:+6,L:0},  G:{H:0,S:+16,L:-6},
+      C:{H:0,S:+14,L:-6},B:{H:0,S:+12,L:-2},M:{H:0,S:+6,L:0},
+    }
+  },
+  classic_chrome: {
+    name: "Classic Chrome",
+    base: "뉴트럴 (Neutral)",
+    contrast: +1, sat: -3, tone: -1,
+    curve5: {0:8, 64:76, 128:128, 192:184, 255:248},
+    axes: {
+      R:{H:0,S:-10,L:+2}, Y:{H:0,S:-14,L:+2}, G:{H:0,S:-6,L:0},
+      C:{H:0,S:-6,L:0},   B:{H:0,S:-6,L:0},  M:{H:0,S:-4,L:0},
+    }
+  },
+  classic_negative: {
+    name: "Classic Negative",
+    base: "뉴트럴 (Neutral)",
+    contrast: +2, sat: -1, tone: -2,
+    curve5: {0:10, 64:70, 128:126, 192:182, 255:245},
+    axes: {
+      R:{H:-6,S:-8,L:+6},  Y:{H:-6,S:-10,L:+6}, G:{H:+6,S:+6,L:-6},
+      C:{H:0,S:+10,L:-6},  B:{H:0,S:-4,L:-2},   M:{H:0,S:0,L:0},
+    }
+  }
+};
 
-/* =========================
-   UI Helpers
-========================= */
+/* =========================================================
+   UI helpers
+========================================================= */
+function setDot(id, state){
+  const el = document.getElementById(id);
+  el.className = "dot" + (state ? (" " + state) : "");
+}
+function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+
 function setTab(tab){
   viewTab = tab;
   document.querySelectorAll(".tab").forEach(el=>{
@@ -416,827 +598,812 @@ function setTab(tab){
   const hint = document.getElementById("tabHint");
   if(tab === "sum"){
     hint.textContent = "초보자용 요약 뷰입니다.";
-    document.getElementById("summaryBox").style.display = "grid";
-    document.getElementById("fullBox").style.display = "none";
+    document.getElementById("summaryBox").classList.remove("hide");
+    document.getElementById("fullBox").classList.add("hide");
   }else{
     hint.textContent = "상세 레시피 리포트입니다.";
-    document.getElementById("summaryBox").style.display = "none";
-    document.getElementById("fullBox").style.display = "block";
+    document.getElementById("summaryBox").classList.add("hide");
+    document.getElementById("fullBox").classList.remove("hide");
   }
 }
 
 function setMode(mode){
   userMode = mode;
-  document.querySelectorAll(".chip").forEach(el=>{
-    if(el.dataset.mode){
-      el.classList.toggle("active", el.dataset.mode === mode);
-    }
+  document.querySelectorAll(".chip[data-mode]").forEach(el=>{
+    el.classList.toggle("active", el.dataset.mode === mode);
   });
 }
 
-function setQPMode(mode){
-  qpMode = mode;
-
-  // chips
-  document.querySelectorAll(".chip").forEach(el=>{
-    if(el.dataset.qpmode){
-      el.classList.toggle("active", el.dataset.qpmode === mode);
-      el.classList.toggle("okActive", el.dataset.qpmode === "quick" && el.dataset.qpmode === mode);
-      el.classList.toggle("warnActive", el.dataset.qpmode === "pro" && el.dataset.qpmode === mode);
-    }
+function setShot(mode){
+  shotMode = mode; // one|two
+  document.querySelectorAll(".chip[data-shot]").forEach(el=>{
+    el.classList.toggle("active", el.dataset.shot === mode);
   });
-
-  // explain + orig UI emphasis
-  const origDrop = document.getElementById("dropOrig");
-  const origTag  = document.getElementById("origTag");
-  const origHint = document.getElementById("origHint");
-  const qpExplain = document.getElementById("qpExplain");
-
-  if(mode === "quick"){
-    qpExplain.innerHTML =
-      "<b>Quick</b>: 타겟 1장만으로 빠르게 생성 (내부 중립 기준).<br/>" +
-      "<b>Pro</b>: 오리지널+타겟 차이로 정밀 생성 (추천).";
-    origDrop.classList.add("dim");
-    origTag.className = "tag";
-    origTag.textContent = "Quick에선 선택";
-    origHint.innerHTML =
-      "<b>Quick(1장)</b>에서는 없어도 됩니다.<br/>" +
-      "오리지널을 넣으면(있다면) Pro로 바꾸는 걸 추천합니다.";
-  } else {
-    qpExplain.innerHTML =
-      "<b>Pro</b>: 오리지널↔타겟 차이로 정밀 생성 (가장 추천).<br/>" +
-      "<b>Quick</b>: 타겟만으로 빠른 생성 (대략값).";
-    origDrop.classList.remove("dim");
-    origTag.className = "tag warn";
-    origTag.textContent = "Pro에서 필수급";
-    origHint.innerHTML =
-      "<b>Pro(2장)</b>의 기준 사진입니다.<br/>" +
-      "같은 장소/피사체를 <b>표준(Standard)/뉴트럴(Neutral)</b>로 찍은 사진이 가장 좋습니다.";
-  }
-
+  // 2장 모드일 때만 원본 업로더 표시
+  document.getElementById("dropOrig").classList.toggle("hide", shotMode !== "two");
   refreshReady();
 }
 
-function setDot(id, state){
-  const el = document.getElementById(id);
-  el.className = "dot " + (state || "");
+function updateStrengthLabel(){
+  const v = parseInt(document.getElementById("presetStrength").value, 10);
+  document.getElementById("strengthLabel").textContent = v + "%";
 }
 
-/* =========================
-   AI 로딩
-========================= */
-async function loadAIModels() {
-  const dot = document.getElementById('dotAI');
-  const text = document.getElementById('aiText');
-  try {
-    await tf.ready();
-    faceModel = await blazeface.load();
-    classifyModel = await mobilenet.load();
-    isAiReady = true;
-    dot.className = "dot ok";
-    text.textContent = "AI 준비완료";
-  } catch(e) {
-    console.warn("AI 로딩 실패:", e);
-    // 실패해도 우회
-    isAiReady = true;
-    dot.className = "dot warn";
-    text.textContent = "AI 실패(우회)";
-  } finally {
-    refreshReady();
-  }
+function updatePresetLabel(){
+  const key = document.getElementById("fujiPreset").value;
+  document.getElementById("presetLabel").textContent = (key === "off") ? "OFF" : ("ON: " + FUJI_PRESETS[key].name);
 }
 
-/* =========================
+document.getElementById("fujiPreset").addEventListener("change", ()=>{
+  updatePresetLabel();
+});
+
+/* =========================================================
    업로드
-========================= */
-function setupDropZone(dropId, inputId, thumbId, nameId, onSetFile) {
+========================================================= */
+function setupDropZone(dropId, inputId, thumbId, nameId, onSetFile){
   const drop = document.getElementById(dropId);
   const input = document.getElementById(inputId);
   const thumb = document.getElementById(thumbId);
   const nameEl = document.getElementById(nameId);
 
-  drop.onclick = ()=> input.click();
-  drop.ondragover = (e)=>{ e.preventDefault(); drop.classList.add('dragover'); };
-  drop.ondragleave = ()=> drop.classList.remove('dragover');
-  drop.ondrop = (e)=>{
-    e.preventDefault(); drop.classList.remove('dragover');
+  drop.addEventListener("click", ()=> input.click());
+  drop.addEventListener("dragover", (e)=>{ e.preventDefault(); drop.classList.add("dragover"); });
+  drop.addEventListener("dragleave", ()=> drop.classList.remove("dragover"));
+  drop.addEventListener("drop", (e)=>{
+    e.preventDefault();
+    drop.classList.remove("dragover");
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if(f){
-      onSetFile(f);
-      updatePreview(f, thumb, nameEl);
-      refreshReady();
-    }
-  };
-  input.onchange = ()=>{
+    if(f){ onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady(); }
+  });
+  input.addEventListener("change", ()=>{
     const f = input.files && input.files[0];
-    if(f){
-      onSetFile(f);
-      updatePreview(f, thumb, nameEl);
-      refreshReady();
-    }
-  };
+    if(f){ onSetFile(f); updatePreview(f, thumb, nameEl); refreshReady(); }
+  });
 }
-
 function updatePreview(file, imgEl, nameEl){
   nameEl.textContent = "✅ " + file.name;
   nameEl.style.display = "block";
   const r = new FileReader();
-  r.onload = e=>{
-    imgEl.src = e.target.result;
-    imgEl.style.display = "block";
-  };
+  r.onload = (e)=>{ imgEl.src = e.target.result; imgEl.style.display = "block"; };
   r.readAsDataURL(file);
 }
 
-/* =========================
-   준비 상태
-========================= */
+/* =========================================================
+   AI 로딩 (버튼에도 표시)
+========================================================= */
+async function loadAIModels(){
+  const dot = document.getElementById("dotAI");
+  const text = document.getElementById("aiText");
+  const btnText = document.getElementById("btnText");
+
+  try{
+    btnText.textContent = "AI 로딩중…";
+    await tf.ready();
+    faceModel = await blazeface.load();
+    classifyModel = await mobilenet.load();
+    isAiReady = true;
+    aiStatusText = "AI 준비완료";
+    dot.className = "dot ok";
+    text.textContent = "AI 준비완료";
+  }catch(e){
+    console.warn("AI 로딩 실패(우회):", e);
+    // AI 실패해도 앱은 작동(수동모드/휴리스틱 우회)
+    isAiReady = true;
+    aiStatusText = "AI 실패(우회)";
+    dot.className = "dot warn";
+    text.textContent = "AI 실패(우회)";
+  }finally{
+    refreshReady();
+  }
+}
+
+/* =========================================================
+   Ready 상태
+========================================================= */
 function refreshReady(){
+  const hasRef = !!refFileState;
   const hasOrig = !!origFileState;
-  const hasRef  = !!refFileState;
 
-  setDot('dotOrig', hasOrig ? 'ok' : '');
-  setDot('dotRef',  hasRef  ? 'ok' : '');
+  setDot("dotR", hasRef ? "ok" : "");
+  setDot("dotO", (shotMode === "two" && hasOrig) ? "ok" : "");
 
-  // Quick: 타겟만 필요
-  // Pro: 오리지널 + 타겟 필요
-  const ready = isAiReady && hasRef && (qpMode === "quick" ? true : hasOrig);
+  const btn = document.getElementById("btnAnalyze");
+  const btnText = document.getElementById("btnText");
 
-  setDot('dotReady', ready ? 'ok' : 'warn');
-  document.getElementById('readyText').textContent = ready ? "분석 가능" : (qpMode==="quick" ? "타겟 필요" : "오리지널+타겟 필요");
-  document.getElementById('btnAnalyze').disabled = !ready;
+  const readyForShot = (shotMode === "one") ? hasRef : (hasRef && hasOrig);
 
-  // Quick일 때 오리지널 드랍의 dim은 setQPMode에서 처리
+  // AI가 완전히 로딩(또는 우회)되기 전에는 버튼에서 로딩 문구 유지
+  if(!isAiReady){
+    btn.disabled = true;
+    btnText.textContent = "AI 로딩중…";
+    return;
+  }
+
+  // AI 로딩 완료 후에는 조건에 따라 활성화
+  btn.disabled = !readyForShot;
+  btnText.textContent = readyForShot ? "⚡ 분석 시작" : "사진을 넣어주세요";
 }
 
-/* =========================
-   Worker 초기화 (Quick/Pro 지원)
-========================= */
-function initWorker(){
-  if(worker) return;
-
-  const workerCode = `
-  function clamp(v, a, b){ return v<a?a:(v>b?b:v); }
-
-  function rgbToHsl(r,g,b){
-    r/=255; g/=255; b/=255;
-    const max=Math.max(r,g,b), min=Math.min(r,g,b);
-    let h=0,s=0; const l=(max+min)/2;
-    if(max!==min){
-      const d=max-min;
-      s = l>0.5 ? d/(2-max-min) : d/(max+min);
-      switch(max){
-        case r: h=(g-b)/d+(g<b?6:0); break;
-        case g: h=(b-r)/d+2; break;
-        case b: h=(r-g)/d+4; break;
-      }
-      h/=6;
-    }
-    return [h*360,s,l];
-  }
-
-  function circularHueDiff(h2,h1){
-    let d=(h2-h1)%360;
-    if(d>180) d-=360;
-    if(d<=-180) d+=360;
-    return d;
-  }
-
-  function luminanceHistFromRGBA(rgba){
-    const hist = new Uint32Array(256);
-    let total=0, tooDark=0, tooBright=0;
-    for(let i=0;i<rgba.length;i+=4){
-      const lum = (0.299*rgba[i] + 0.587*rgba[i+1] + 0.114*rgba[i+2]) | 0;
-      hist[lum]++; total++;
-      if(lum<=5) tooDark++;
-      if(lum>=250) tooBright++;
-    }
-    return {hist, total, tooDark, tooBright};
-  }
-
-  function cdfFromHist(hist, total){
-    const cdf = new Float32Array(256);
-    let acc=0;
-    for(let i=0;i<256;i++){ acc+=hist[i]; cdf[i]=acc/total; }
-    return cdf;
-  }
-
-  function percentileByHist(hist, total, p){
-    const target = total * p;
-    let acc=0;
-    for(let i=0;i<256;i++){
-      acc += hist[i];
-      if(acc >= target) return i;
-    }
-    return 255;
-  }
-
-  // Quick(1장)용: 선형(중립) CDF 생성
-  function linearCDF(){
-    const cdf = new Float32Array(256);
-    for(let i=0;i<256;i++) cdf[i] = (i+1)/256;
-    return cdf;
-  }
-
-  function buildToneLUTByCDFMatch(cdfO, cdfR){
-    const lut = new Uint8Array(256);
-    let j=0;
-    for(let i=0;i<256;i++){
-      const p = cdfO[i];
-      while(j<255 && cdfR[j] < p) j++;
-      lut[i]=j;
-    }
-    return lut;
-  }
-
-  function applyBlackLiftCompensation(lut, refP02){
-    const liftRaw = Math.max(0, refP02 - 8);
-    const strength = Math.max(0, Math.min(1, liftRaw/22));
-    const liftPx = Math.round(6 + 18*strength);
-
-    const out = new Uint8Array(256);
-    for(let i=0;i<256;i++){
-      let boost = 0;
-      if(i < 128) boost = liftPx * (1 - (i/128)); // 암부쪽 더 강하게
-      out[i] = Math.min(255, lut[i] + boost);
-      if(i>0 && out[i] < out[i-1]) out[i] = out[i-1];
-    }
-    return {lut: out, isLifted: strength>=0.20, strength, liftPx};
-  }
-
-  function getColorAxesDataWeighted(rgba){
-    const buckets = {
-      R:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
-      Y:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
-      G:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
-      C:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
-      B:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
-      M:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
-    };
-
-    let valid=0;
-    for(let i=0;i<rgba.length;i+=4){
-      let [h,s,l] = rgbToHsl(rgba[i],rgba[i+1],rgba[i+2]);
-
-      if(s<0.08 || l<0.06 || l>0.94) continue;
-
-      let k='M';
-      if(h>=340 || h<20) k='R';
-      else if(h>=20 && h<80) k='Y';
-      else if(h>=80 && h<150) k='G';
-      else if(h>=150 && h<210) k='C';
-      else if(h>=210 && h<280) k='B';
-
-      const w = Math.max(0.01, Math.pow(s,1.5) * (1.0 - Math.min(0.8, Math.abs(l-0.5)*1.6)));
-      const rad=h*Math.PI/180;
-      const bk=buckets[k];
-
-      bk.sumCos+=Math.cos(rad)*w;
-      bk.sumSin+=Math.sin(rad)*w;
-      bk.sumS+=s*w;
-      bk.sumL+=l*w;
-      bk.wSum+=w;
-      bk.count++;
-      valid++;
-    }
-
-    const out={};
-    for(const k in buckets){
-      const b=buckets[k];
-      if(b.wSum>0){
-        let h=Math.atan2(b.sumSin, b.sumCos)*180/Math.PI;
-        if(h<0) h+=360;
-        out[k]={H:h, S:b.sumS/b.wSum, L:b.sumL/b.wSum, count:b.count};
-      }else{
-        out[k]={H:0,S:0,L:0,count:0};
-      }
-    }
-    return {axes: out, validColored: valid};
-  }
-
-  // Quick(1장)용: “가상 오리지널(중립 기준)” 축 데이터 생성
-  function makeNeutralAxesLike(refAxes){
-    const centers = { R:0, Y:50, G:115, C:180, B:245, M:300 };
-    const out = {};
-    for(const k in centers){
-      const ref = refAxes[k] || {count:0};
-      const cnt = Math.max(2000, ref.count || 0); // 신뢰도/감쇠 과도 방지용
-      out[k] = { H: centers[k], S:0.35, L:0.50, count: cnt };
-    }
-    return out;
-  }
-
-  function recommendBase(contrast, refAxes, totalColored, aiType, userMode, qpMode){
-    // userMode(수동)가 있으면 최우선 반영
-    if(userMode && userMode !== "auto"){
-      if(userMode === "portrait")   return {recBase:"인물사진 (Portrait)",   recReason:"[수동] 인물 모드 선택"};
-      if(userMode === "landscape")  return {recBase:"풍경사진 (Landscape)", recReason:"[수동] 풍경 모드 선택"};
-      if(userMode === "snap")       return {recBase:"표준 (Standard)",      recReason:"[수동] 스냅 모드: 범용 베이스"};
-      if(userMode === "night")      return {recBase:"뉴트럴 (Neutral)",     recReason:"[수동] 야경 모드: 계조 확보 우선"};
-    }
-
-    // AI 우선 (auto일 때만 의미)
-    if(aiType === "portrait")  return {recBase:"인물사진 (Portrait)", recReason:"[AI] 얼굴 감지 기반 추천"};
-    if(aiType === "landscape") return {recBase:"풍경사진 (Landscape)", recReason:"[AI] 풍경/자연 감지 기반 추천"};
-
-    // 색상 비중 기반
-    if(totalColored < 1500){
-      return {recBase:"모노크롬 (Monochrome)", recReason:"유효 색상 데이터가 적어 무채색 성향"};
-    }
-
-    const ry = (refAxes.R.count + refAxes.Y.count);
-    const gbc = (refAxes.G.count + refAxes.B.count + refAxes.C.count);
-
-    if(ry > totalColored*0.55) return {recBase:"인물사진 (Portrait)", recReason:"R/Y 비중(피부톤 계열) 높음"};
-    if(gbc > totalColored*0.45) return {recBase:"풍경사진 (Landscape)", recReason:"G/B/C 비중(자연/하늘) 높음"};
-
-    // 대비 낮으면 Neutral 유도
-    if(contrast <= -2) return {recBase:"뉴트럴 (Neutral)", recReason:"대비 낮음: 계조 확보에 유리"};
-
-    // Quick일 때는 안전하게 Standard
-    if(qpMode === "quick") return {recBase:"표준 (Standard)", recReason:"Quick(1장): 범용 안정값 우선"};
-
-    return {recBase:"표준 (Standard)", recReason:"범용적인 베이스"};
-  }
-
-  self.onmessage = (e)=>{
-    const {origRGBA, refRGBA, aiType, userMode, qpMode} = e.data;
-
-    // ref는 필수
-    const r = luminanceHistFromRGBA(refRGBA);
-    const cR = getColorAxesDataWeighted(refRGBA);
-
-    // ===== Tone: Quick vs Pro =====
-    let cdfO, oRange;
-
-    if(qpMode === "quick" || !origRGBA){
-      // Quick: 선형(중립) 기준
-      cdfO = linearCDF();
-      // 선형 분포에서 p05≈13, p95≈242 => range≈229
-      oRange = 229;
-    } else {
-      const o = luminanceHistFromRGBA(origRGBA);
-      cdfO = cdfFromHist(o.hist, o.total);
-      const oP05 = percentileByHist(o.hist, o.total, 0.05);
-      const oP95 = percentileByHist(o.hist, o.total, 0.95);
-      oRange = Math.max(1, oP95 - oP05);
-    }
-
-    const cdfR = cdfFromHist(r.hist, r.total);
-    let rawLut = buildToneLUTByCDFMatch(cdfO, cdfR);
-
-    const rP02 = percentileByHist(r.hist, r.total, 0.02);
-    const liftRes = applyBlackLiftCompensation(rawLut, rP02);
-    const toneLUT = liftRes.lut;
-
-    const rP05 = percentileByHist(r.hist, r.total, 0.05);
-    const rP95 = percentileByHist(r.hist, r.total, 0.95);
-    const rRange = Math.max(1, rP95 - rP05);
-
-    let contrast = clamp(Math.round(((rRange/oRange)-1)*6), -4, 4);
-
-    // ===== Color axes: Quick vs Pro =====
-    let axesO;
-
-    if(qpMode === "quick" || !origRGBA){
-      axesO = makeNeutralAxesLike(cR.axes);
-    } else {
-      const cO = getColorAxesDataWeighted(origRGBA);
-      axesO = cO.axes;
-    }
-
-    const keys  = ['R','Y','G','C','B','M'];
-    const names = ["Red(빨강)","Yellow(노랑)","Green(초록)","Cyan(시안)","Blue(파랑)","Magenta(마젠타)"];
-    const colorSliders = [];
-
-    for(let i=0;i<6;i++){
-      const k = keys[i];
-      const o = axesO[k];
-      const rr = cR.axes[k];
-
-      const countO = o.count || 0;
-      const countR = rr.count || 0;
-
-      let diffH=0, diffS=0, diffL=0;
-
-      if(countR > 50 && countO > 50){
-        diffH = circularHueDiff(rr.H, o.H);
-        diffS = (rr.S - o.S) * 100;
-        diffL = (rr.L - o.L) * 100;
-      }
-
-      // Canon scale clamp
-      const canonH = clamp(Math.round(diffH/6), -8, 8);
-      const canonS = clamp(Math.round(diffS/10), -8, 8);
-      const canonL = clamp(Math.round(diffL/10), -8, 8);
-
-      colorSliders.push({
-        label: names[i],
-        axis: k,
-        H: diffH, S: diffS, L: diffL,
-        canonH, canonS, canonL,
-        countRef: countR
-      });
-    }
-
-    // warnings (단순)
-    const warnings = [];
-    const darkRatio = r.tooDark / Math.max(1, r.total);
-    const brightRatio = r.tooBright / Math.max(1, r.total);
-    if(darkRatio > 0.35) warnings.push("타겟이 매우 어둡습니다(암부 비중↑).");
-    if(brightRatio > 0.35) warnings.push("타겟이 매우 밝습니다(명부 비중↑).");
-    if(cR.validColored < 1500) warnings.push("유효 색상 데이터가 적습니다(저채도/무채색).");
-
-    const base = recommendBase(contrast, cR.axes, cR.validColored, aiType, userMode, qpMode);
-
-    self.postMessage({
-      ok:true,
-      contrast,
-      toneLUT,
-      isLifted: liftRes.isLifted,
-      liftStrength: liftRes.strength,
-      liftPx: liftRes.liftPx,
-      rP02,
-      base,
-      reason: base.recReason,
-      colorSliders,
-      diagnostics: {
-        totalColored: cR.validColored,
-        darkRatio, brightRatio,
-        warnings
-      }
-    });
-  };
-  `;
-
-  const url = URL.createObjectURL(new Blob([workerCode], {type:'application/javascript'}));
-  worker = new Worker(url);
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
-}
-
-/* =========================
-   Image decode + resize
-========================= */
+/* =========================================================
+   이미지 디코드 + 리사이즈
+========================================================= */
 async function decodeToImageBitmap(file){
-  // createImageBitmap(file)는 대부분 브라우저에서 빠르고 안정적
+  // createImageBitmap(file)이 가장 빠르고 안정적
   return await createImageBitmap(file);
 }
 function drawScaledToImageData(bitmap, maxDim){
   const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-  const tw = Math.max(1, Math.round(bitmap.width*scale));
-  const th = Math.max(1, Math.round(bitmap.height*scale));
-
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  const tw = Math.max(1, Math.round(bitmap.width * scale));
+  const th = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d", {willReadFrequently:true});
   canvas.width = tw; canvas.height = th;
-
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0,0,tw,th);
   ctx.drawImage(bitmap, 0,0,tw,th);
-
   return ctx.getImageData(0,0,tw,th);
 }
 
-/* =========================
-   LUT (.cube) 생성
-========================= */
-function generateCubeLUT(toneLUT, sliders){
-  const SIZE = 33;
-  let content = `TITLE "Canon_Style_LUT_v8_2"\nLUT_3D_SIZE ${SIZE}\n\n`;
+/* =========================================================
+   ToneCurve5pt -> LUT(256)
+========================================================= */
+function curve5ToLUT(curve5){
+  const xs = [0,64,128,192,255];
+  const ys = xs.map(x => clamp(Math.round(curve5[x]), 0, 255));
+  const lut = new Uint8Array(256);
 
-  const rgb2hsl = (r,g,b) => {
-    let max = Math.max(r,g,b), min = Math.min(r,g,b);
-    let h=0, s=0, l=(max+min)/2;
-    if(max !== min){
-      let d = max-min;
-      s = l>0.5 ? d/(2-max-min) : d/(max+min);
-      switch(max){
-        case r: h=(g-b)/d+(g<b?6:0); break;
-        case g: h=(b-r)/d+2; break;
-        case b: h=(r-g)/d+4; break;
-      }
-      h*=60;
-    }
-    return [h,s,l];
-  };
-
-  const hsl2rgb = (h,s,l) => {
-    let c = (1 - Math.abs(2*l - 1)) * s;
-    let x = c * (1 - Math.abs((h/60)%2 - 1));
-    let m = l - c/2;
-    let r=0,g=0,b=0;
-    if(h<60){r=c;g=x;b=0;}
-    else if(h<120){r=x;g=c;b=0;}
-    else if(h<180){r=0;g=c;b=x;}
-    else if(h<240){r=0;g=x;b=c;}
-    else if(h<300){r=x;g=0;b=c;}
-    else{r=c;g=0;b=x;}
-    return [r+m, g+m, b+m];
-  };
-
-  for(let bIdx=0; bIdx<SIZE; bIdx++){
-    for(let gIdx=0; gIdx<SIZE; gIdx++){
-      for(let rIdx=0; rIdx<SIZE; rIdx++){
-        let r = Math.round((rIdx / (SIZE-1)) * 255);
-        let g = Math.round((gIdx / (SIZE-1)) * 255);
-        let b = Math.round((bIdx / (SIZE-1)) * 255);
-
-        // tone
-        r = toneLUT[r]; g = toneLUT[g]; b = toneLUT[b];
-
-        // 6-axis
-        let [hh, ss, ll] = rgb2hsl(r/255, g/255, b/255);
-
-        let axisIdx = -1;
-        if(hh>=340 || hh<20) axisIdx=0;
-        else if(hh>=20 && hh<80) axisIdx=1;
-        else if(hh>=80 && hh<150) axisIdx=2;
-        else if(hh>=150 && hh<210) axisIdx=3;
-        else if(hh>=210 && hh<280) axisIdx=4;
-        else axisIdx=5;
-
-        if(axisIdx !== -1 && ss > 0.05){
-          const shift = sliders[axisIdx];
-          hh = (hh + shift.H) % 360; if(hh<0) hh += 360;
-          ss = Math.max(0, Math.min(1, ss + (shift.S/100)));
-          ll = Math.max(0, Math.min(1, ll + (shift.L/100)*0.5));
-        }
-
-        const [nr, ng, nb] = hsl2rgb(hh, ss, ll);
-        content += `${nr.toFixed(6)} ${ng.toFixed(6)} ${nb.toFixed(6)}\n`;
-      }
+  // piecewise linear
+  for(let i=0;i<xs.length-1;i++){
+    const x0=xs[i], x1=xs[i+1];
+    const y0=ys[i], y1=ys[i+1];
+    const dx = (x1 - x0);
+    for(let x=x0; x<=x1; x++){
+      const t = dx === 0 ? 0 : (x - x0) / dx;
+      lut[x] = clamp(Math.round(lerp(y0, y1, t)), 0, 255);
     }
   }
-  return content;
+  // enforce monotonic
+  for(let i=1;i<256;i++){
+    if(lut[i] < lut[i-1]) lut[i] = lut[i-1];
+  }
+  return lut;
 }
 
-function downloadLUT(){
-  if(!globalToneLUT || !globalColorSliders){
-    alert("먼저 분석을 진행해주세요!");
+/* =========================================================
+   LUT/6축/기본슬라이더 오버레이(B안)
+========================================================= */
+function applyFujiOverlay(analysis, presetKey, strength01){
+  if(!presetKey || presetKey === "off" || !FUJI_PRESETS[presetKey] || strength01 <= 0){
+    return analysis;
+  }
+  const p = FUJI_PRESETS[presetKey];
+
+  // 1) Contrast/Sat/Tone: -4~+4
+  const outContrast = clamp(Math.round(lerp(analysis.contrast, p.contrast, strength01)), -4, 4);
+  const outSat      = clamp(Math.round(lerp(analysis.sat,      p.sat,      strength01)), -4, 4);
+  const outTone     = clamp(Math.round(lerp(analysis.tone,     p.tone,     strength01)), -4, 4);
+
+  // 2) Tone LUT
+  const pLUT = curve5ToLUT(p.curve5);
+  const outLUT = new Uint8Array(256);
+  for(let i=0;i<256;i++){
+    outLUT[i] = clamp(Math.round(lerp(analysis.toneLUT[i], pLUT[i], strength01)), 0, 255);
+  }
+  for(let i=1;i<256;i++){
+    if(outLUT[i] < outLUT[i-1]) outLUT[i] = outLUT[i-1];
+  }
+
+  // 3) 6축 (H/S/L: -30~+30)
+  const outAxes = analysis.axes.map(ax=>{
+    const key = ax.axis;
+    const pa = p.axes[key];
+    if(!pa) return {...ax};
+    return {
+      ...ax,
+      canonH: clamp(Math.round(lerp(ax.canonH, pa.H, strength01)), -30, 30),
+      canonS: clamp(Math.round(lerp(ax.canonS, pa.S, strength01)), -30, 30),
+      canonL: clamp(Math.round(lerp(ax.canonL, pa.L, strength01)), -30, 30),
+    };
+  });
+
+  // 4) Base: 텍스트는 “분석 추천”을 우선 유지하되, 프리셋 켰으면 "분석 + 프리셋" 형태로 표시
+  const outBase = analysis.base; // 기본은 분석 추천
+  const baseHint = `${analysis.base} + ${p.name} ${Math.round(strength01*100)}%`;
+
+  return {
+    ...analysis,
+    contrast: outContrast,
+    sat: outSat,
+    tone: outTone,
+    toneLUT: outLUT,
+    axes: outAxes,
+    baseHint
+  };
+}
+
+/* =========================================================
+   Worker (1장/2장 모두 지원)
+   - 2장: orig→ref CDF 매칭 + 색축 비교
+   - 1장: orig 없음 → "중립 기준" (균등 히스토그램 + 축 기준치) 대비로 계산
+========================================================= */
+function initWorker(){
+  if(worker) return;
+
+  const code = `
+    function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+    function rgbToHsl(r,g,b){
+      r/=255; g/=255; b/=255;
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      let h=0,s=0;
+      const l=(max+min)/2;
+      if(max!==min){
+        const d=max-min;
+        s = l>0.5 ? d/(2-max-min) : d/(max+min);
+        switch(max){
+          case r: h=(g-b)/d + (g<b?6:0); break;
+          case g: h=(b-r)/d + 2; break;
+          case b: h=(r-g)/d + 4; break;
+        }
+        h/=6;
+      }
+      return [h*360, s, l];
+    }
+
+    function circularHueDiff(h2,h1){
+      let d=(h2-h1)%360;
+      if(d>180) d-=360;
+      if(d<=-180) d+=360;
+      return d;
+    }
+
+    function luminanceHistFromRGBA(rgba){
+      const hist = new Uint32Array(256);
+      let total=0, tooDark=0, tooBright=0;
+      for(let i=0;i<rgba.length;i+=4){
+        const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
+        const lum = (0.299*r + 0.587*g + 0.114*b) | 0;
+        hist[lum]++; total++;
+        if(lum<=5) tooDark++;
+        if(lum>=250) tooBright++;
+      }
+      return {hist,total,tooDark,tooBright};
+    }
+
+    function uniformHist(){
+      // 256 bins equal probability
+      const hist = new Uint32Array(256);
+      for(let i=0;i<256;i++) hist[i]=1;
+      return {hist,total:256,tooDark:0,tooBright:0};
+    }
+
+    function cdfFromHist(hist,total){
+      const cdf = new Float32Array(256);
+      let acc=0;
+      for(let i=0;i<256;i++){ acc += hist[i]; cdf[i] = acc/total; }
+      return cdf;
+    }
+
+    function buildToneLUTByCDFMatch(cdfO,cdfR){
+      const lut = new Uint8Array(256);
+      let j=0;
+      for(let i=0;i<256;i++){
+        const p = cdfO[i];
+        while(j<255 && cdfR[j] < p) j++;
+        lut[i]=j;
+      }
+      // monotonic already
+      return lut;
+    }
+
+    function percentileByHist(hist,total,p){
+      const target = total*p;
+      let acc=0;
+      for(let i=0;i<256;i++){
+        acc+=hist[i];
+        if(acc>=target) return i;
+      }
+      return 255;
+    }
+
+    function applyBlackLiftCompensation(lut, refP02){
+      const liftRaw = Math.max(0, refP02 - 8);
+      const strength = Math.max(0, Math.min(1, liftRaw/22));
+      const liftPx = Math.round(6 + 18*strength);
+
+      const out = new Uint8Array(256);
+      for(let i=0;i<256;i++){
+        let boost = 0;
+        if(i < 128) boost = liftPx * (1 - (i/128));
+        out[i] = Math.min(255, lut[i] + boost);
+        if(i>0 && out[i] < out[i-1]) out[i] = out[i-1];
+      }
+      return {lut: out, strength, liftPx, isLifted: strength>=0.20};
+    }
+
+    function getColorAxesDataWeighted(rgba){
+      const buckets = {
+        R:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+        Y:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+        G:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+        C:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+        B:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+        M:{sumCos:0,sumSin:0,sumS:0,sumL:0,wSum:0,count:0},
+      };
+
+      let valid=0;
+      let sumS=0, sumTone=0, toneN=0;
+
+      for(let i=0;i<rgba.length;i+=4){
+        const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
+        const hsl = rgbToHsl(r,g,b);
+        let h=hsl[0], s=hsl[1], l=hsl[2];
+
+        // filter
+        if(s < 0.08) continue;
+        if(l < 0.06 || l > 0.94) continue;
+
+        // axis bucket
+        let k='M';
+        if(h>=340 || h<20) k='R';
+        else if(h>=20 && h<80) k='Y';
+        else if(h>=80 && h<150) k='G';
+        else if(h>=150 && h<210) k='C';
+        else if(h>=210 && h<280) k='B';
+        else k='M';
+
+        const wS = Math.pow(s, 1.5);
+        const wL = 1.0 - Math.min(0.8, Math.abs(l-0.5)*1.6);
+        const w = Math.max(0.01, wS*wL);
+
+        const rad = h*Math.PI/180;
+        const bk = buckets[k];
+        bk.sumCos += Math.cos(rad)*w;
+        bk.sumSin += Math.sin(rad)*w;
+        bk.sumS += s*w;
+        bk.sumL += l*w;
+        bk.wSum += w;
+        bk.count++;
+        valid++;
+
+        // overall sat + (green-magenta-ish) tone proxy
+        sumS += s;
+        // very rough: map hue around 300~60 as "magenta bias", 120~240 as "green/cyan bias"
+        sumTone += Math.sin(rad); // [-1..1] proxy
+        toneN++;
+      }
+
+      const out={};
+      for(const k in buckets){
+        const b=buckets[k];
+        if(b.wSum>0){
+          let h = Math.atan2(b.sumSin, b.sumCos) * 180/Math.PI;
+          if(h<0) h+=360;
+          out[k]={H:h, S:b.sumS/b.wSum, L:b.sumL/b.wSum, count:b.count};
+        } else {
+          out[k]={H:0,S:0,L:0,count:0};
+        }
+      }
+
+      const avgS = toneN>0 ? (sumS/toneN) : 0;
+      const avgTone = toneN>0 ? (sumTone/toneN) : 0;
+
+      return {axes: out, validColored: valid, avgS, avgTone};
+    }
+
+    function baseRecommend(mode, aiType, axesR, totalColored, contrast){
+      // mode(수동) 우선
+      if(mode !== "auto"){
+        if(mode==="portrait") return {base:"인물사진 (Portrait)", reason:"수동 모드(인물) 선택"};
+        if(mode==="landscape") return {base:"풍경사진 (Landscape)", reason:"수동 모드(풍경) 선택"};
+        if(mode==="night") return {base:"뉴트럴 (Neutral)", reason:"수동 모드(야경): 계조 확보 우선"};
+        if(mode==="snap") return {base:"표준 (Standard)", reason:"수동 모드(스냅): 범용 우선"};
+        return {base:"표준 (Standard)", reason:"수동 모드"};
+      }
+
+      // auto: AI 우선
+      if(aiType==="portrait") return {base:"인물사진 (Portrait)", reason:"AI: 얼굴 감지"};
+      if(aiType==="landscape") return {base:"풍경사진 (Landscape)", reason:"AI: 풍경 감지"};
+
+      // fallback: 색상 분포
+      if(totalColored < 1500) return {base:"모노크롬 (Monochrome)", reason:"유효 색상 데이터가 매우 적음"};
+      if((axesR.R.count + axesR.Y.count) > totalColored*0.55) return {base:"인물사진 (Portrait)", reason:"R/Y 비중이 큼"};
+      if((axesR.G.count + axesR.B.count + axesR.C.count) > totalColored*0.45) return {base:"풍경사진 (Landscape)", reason:"G/B/C 비중이 큼"};
+      if(contrast <= -2) return {base:"뉴트럴 (Neutral)", reason:"대비가 낮음(계조 확보)"};
+      return {base:"표준 (Standard)", reason:"범용"};
+    }
+
+    self.onmessage = (e)=>{
+      const {origRGBA, refRGBA, hasOrig, aiType, mode} = e.data;
+
+      const r = luminanceHistFromRGBA(refRGBA);
+      const o = hasOrig ? luminanceHistFromRGBA(origRGBA) : uniformHist();
+
+      const cdfR = cdfFromHist(r.hist, r.total);
+      const cdfO = cdfFromHist(o.hist, o.total);
+      let lut = buildToneLUTByCDFMatch(cdfO, cdfR);
+
+      // lift
+      const rP02 = percentileByHist(r.hist, r.total, 0.02);
+      const lift = applyBlackLiftCompensation(lut, rP02);
+      lut = lift.lut;
+
+      // contrast from p95-p05
+      const oP05 = percentileByHist(o.hist, o.total, 0.05);
+      const oP95 = percentileByHist(o.hist, o.total, 0.95);
+      const rP05 = percentileByHist(r.hist, r.total, 0.05);
+      const rP95 = percentileByHist(r.hist, r.total, 0.95);
+      const oRange = Math.max(1, oP95 - oP05);
+      const rRange = Math.max(1, rP95 - rP05);
+      let contrast = clamp(Math.round(((rRange/oRange)-1)*6), -4, 4);
+
+      // color axes
+      const cR = getColorAxesDataWeighted(refRGBA);
+      const axesR = cR.axes;
+
+      // "orig" color reference:
+      // - 2장: orig의 축
+      // - 1장: 중립 축(각 축 중심 H, S=0.5, L=0.5)로 둔다
+      const axesO = hasOrig ? getColorAxesDataWeighted(origRGBA).axes : {
+        R:{H:0,S:0.50,L:0.50,count:9999},
+        Y:{H:60,S:0.50,L:0.50,count:9999},
+        G:{H:120,S:0.50,L:0.50,count:9999},
+        C:{H:180,S:0.50,L:0.50,count:9999},
+        B:{H:240,S:0.50,L:0.50,count:9999},
+        M:{H:300,S:0.50,L:0.50,count:9999},
+      };
+
+      const keys = ['R','Y','G','C','B','M'];
+      const names = ["Red(빨강)","Yellow(노랑)","Green(초록)","Cyan(시안)","Blue(파랑)","Magenta(마젠타)"];
+
+      const axesOut = [];
+      for(let i=0;i<6;i++){
+        const k = keys[i];
+        const rA = axesR[k];
+        const oA = axesO[k];
+
+        // 안정 장치: ref count가 너무 적으면 과한 튀는 값 방지
+        const countR = rA.count || 0;
+        const reliability = clamp(Math.sqrt(countR / 2000), 0.20, 1.0);
+
+        const diffH = circularHueDiff(rA.H, oA.H);          // degrees
+        const diffS = (rA.S - oA.S) * 100;                  // -100..100
+        const diffL = (rA.L - oA.L) * 100;                  // -100..100
+
+        // Canon PSE 기준으로 “대부분 -3~+5 나오는 게 정상”이 되도록 스케일링(=현실적인 움직임)
+        // (원하면 더 크게 움직이게 스케일만 조절하면 됨)
+        const canonH = clamp(Math.round((diffH/6.0) * reliability), -30, 30);
+        const canonS = clamp(Math.round((diffS/10.0) * reliability), -30, 30);
+        const canonL = clamp(Math.round((diffL/10.0) * reliability), -30, 30);
+
+        axesOut.push({
+          axis: k,
+          label: names[i],
+          canonH, canonS, canonL,
+          countR
+        });
+      }
+
+      // Basic: Saturation / ColorTone (간단 추정)
+      // sat: avgS(0~1)을 0.5 기준으로 -4..+4
+      let sat = clamp(Math.round((cR.avgS - 0.45) * 10), -4, 4);
+      // tone: avgTone(-1..1)을 -4..+4
+      let tone = clamp(Math.round(cR.avgTone * 4), -4, 4);
+
+      // Base 추천
+      const baseRec = baseRecommend(mode, aiType, axesR, cR.validColored, contrast);
+
+      // warnings
+      const warnings = [];
+      const darkRatio = r.tooDark / r.total;
+      const brightRatio = r.tooBright / r.total;
+      if(darkRatio > 0.35) warnings.push("타겟이 매우 어둡습니다(암부 비중↑). 결과 신뢰도가 낮아질 수 있습니다.");
+      if(brightRatio > 0.35) warnings.push("타겟이 매우 밝습니다(명부 비중↑). 톤커브가 단순화될 수 있습니다.");
+      if(cR.validColored < 1500) warnings.push("유효 색상 데이터가 부족합니다(저채도/무채색). 6색축은 참고용입니다.");
+
+      self.postMessage({
+        ok:true,
+        contrast,
+        sat,
+        tone,
+        toneLUT: lut,
+        lift: {isLifted: lift.isLifted, strength: lift.strength, liftPx: lift.liftPx, rP02},
+        base: baseRec.base,
+        baseReason: baseRec.reason,
+        axes: axesOut,
+        warnings
+      });
+    };
+  `;
+
+  const url = URL.createObjectURL(new Blob([code], {type:"application/javascript"}));
+  worker = new Worker(url);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
+/* =========================================================
+   AI 피사체 판별 (auto일 때만)
+========================================================= */
+async function detectAiType(){
+  if(userMode !== "auto") return {type:"manual", note:"수동"};
+  if(!faceModel || !classifyModel) return {type:"fallback", note: aiStatusText};
+
+  // 타겟 이미지는 이미 canvas에 그려져있다고 가정
+  const canvas = document.getElementById("canvas");
+  try{
+    const faces = await faceModel.estimateFaces(canvas, false);
+    if(faces && faces.length > 0) return {type:"portrait", note:`AI: 얼굴 ${faces.length}개 감지`};
+
+    const preds = await classifyModel.classify(canvas);
+    const lsKw = ['mountain','valley','ocean','sea','beach','tree','forest','sky','nature','landscape','lake','park'];
+    const isLandscape = preds?.some(p => lsKw.some(kw => p.className.toLowerCase().includes(kw)));
+    if(isLandscape) return {type:"landscape", note:`AI: 풍경(${preds[0].className})`};
+    return {type:"standard", note:`AI: 일반(${preds[0].className})`};
+  }catch(e){
+    console.warn("AI 판별 실패:", e);
+    return {type:"fallback", note:"AI 판별 실패(우회)"};
+  }
+}
+
+/* =========================================================
+   분석 메인
+========================================================= */
+async function analyzeAll(){
+  const btn = document.getElementById("btnAnalyze");
+  const spin = document.getElementById("spin");
+  const btnText = document.getElementById("btnText");
+
+  // guard
+  if(!refFileState){
+    alert("타겟 사진이 필요합니다.");
     return;
   }
-  const btn = document.getElementById('btnLut');
-  btn.textContent = "⏳ LUT 생성 중...";
-  btn.disabled = true;
-
-  setTimeout(()=>{
-    try{
-      const cubeData = generateCubeLUT(globalToneLUT, globalColorSliders);
-      const blob = new Blob([cubeData], {type:'text/plain;charset=utf-8'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Custom_Recipe_v8_2_${Date.now()}.cube`;
-      a.click();
-      setTimeout(()=>URL.revokeObjectURL(url), 1000);
-    } finally {
-      btn.textContent = "🎬 3D LUT (.cube) 다운로드";
-      btn.disabled = false;
-    }
-  }, 30);
-}
-
-/* =========================
-   분석 메인
-========================= */
-async function analyzeAll(){
-  const btn = document.getElementById('btnAnalyze');
-  const spin = document.getElementById('spin');
+  if(shotMode==="two" && !origFileState){
+    alert("2장 모드에서는 원본 사진이 필요합니다.");
+    return;
+  }
 
   btn.disabled = true;
   spin.style.display = "inline-block";
-  document.getElementById('resultCard').style.display = "none";
+  btnText.textContent = "분석 중…";
+
+  document.getElementById("resultCard").classList.add("hide");
 
   try{
-    const maxDim = parseInt(document.getElementById('maxDim').value, 10);
-
-    // Quick: ref만 필요 / Pro: 둘 다 필요
-    if(!refFileState) throw new Error("타겟 이미지가 필요합니다.");
-    if(qpMode === "pro" && !origFileState) throw new Error("Pro 모드에서는 오리지널 이미지가 필요합니다.");
+    const maxDim = parseInt(document.getElementById("maxDim").value, 10);
 
     // decode
     const bmR = await decodeToImageBitmap(refFileState);
     const idR = drawScaledToImageData(bmR, maxDim);
 
     let idO = null;
-    if(qpMode === "pro" && origFileState){
+    if(shotMode === "two"){
       const bmO = await decodeToImageBitmap(origFileState);
       idO = drawScaledToImageData(bmO, maxDim);
     }
 
     // AI type (auto일 때만)
-    let aiType = "fallback";
-    if(userMode === "auto" && faceModel && classifyModel){
-      try{
-        // canvas에는 마지막으로 그려진 것이 idO일 수 있으니, idR을 다시 canvas에 그려서 AI 분석 일관성 확보
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = idR.width; canvas.height = idR.height;
-        // ImageData를 바로 putImageData (빠름)
-        ctx.putImageData(idR, 0, 0);
+    const ai = await detectAiType();
+    const aiType = (userMode==="auto") ? (ai.type==="manual" ? "fallback" : ai.type) : "fallback";
 
-        const faces = await faceModel.estimateFaces(canvas, false);
-        if(faces && faces.length > 0){
-          aiType = "portrait";
-        } else {
-          const preds = await classifyModel.classify(canvas);
-          const lsKw = ['mountain','valley','ocean','sea','beach','tree','forest','sky','nature','landscape','lake','park','river'];
-          const p0 = preds && preds[0] ? (preds[0].className || "") : "";
-          const isLandscape = preds?.some(p => lsKw.some(kw => (p.className||"").toLowerCase().includes(kw)));
-          aiType = isLandscape ? "landscape" : "standard";
-        }
-      } catch(e){
-        console.warn("AI 추론 실패:", e);
-        aiType = "fallback";
-      }
-    } else {
-      // 수동이면 aiType은 참고용
-      aiType = (userMode !== "auto") ? userMode : "fallback";
-    }
-
-    // Worker compute
+    // worker compute
     const refBuf = idR.data.buffer;
-    const origBuf = idO ? idO.data.buffer : null;
+    const hasOrig = (shotMode==="two");
+    const origBuf = hasOrig ? idO.data.buffer : null;
 
     const result = await new Promise((resolve, reject)=>{
       const onMsg = (ev)=>{ cleanup(); resolve(ev.data); };
       const onErr = (err)=>{ cleanup(); reject(err); };
       const cleanup = ()=>{
-        worker.removeEventListener('message', onMsg);
-        worker.removeEventListener('error', onErr);
+        worker.removeEventListener("message", onMsg);
+        worker.removeEventListener("error", onErr);
       };
-      worker.addEventListener('message', onMsg);
-      worker.addEventListener('error', onErr);
+      worker.addEventListener("message", onMsg);
+      worker.addEventListener("error", onErr);
 
-      if(origBuf){
+      if(hasOrig){
         worker.postMessage({
           origRGBA: new Uint8ClampedArray(origBuf),
           refRGBA: new Uint8ClampedArray(refBuf),
-          aiType, userMode, qpMode
+          hasOrig: true,
+          aiType,
+          mode: userMode
         }, [origBuf, refBuf]);
-      } else {
+      }else{
         worker.postMessage({
-          origRGBA: null,
           refRGBA: new Uint8ClampedArray(refBuf),
-          aiType, userMode, qpMode
+          hasOrig: false,
+          aiType,
+          mode: userMode
         }, [refBuf]);
       }
     });
 
-    if(!result?.ok) throw new Error("분석 결과가 올바르지 않습니다.");
+    if(!result || !result.ok) throw new Error("Worker result invalid");
 
-    const {contrast, toneLUT, isLifted, liftStrength, liftPx, rP02, base, reason, colorSliders, diagnostics} = result;
+    // Fuji overlay (B안)
+    const presetKey = document.getElementById("fujiPreset").value;
+    const strength01 = parseInt(document.getElementById("presetStrength").value, 10) / 100;
+    const analysis = {
+      contrast: result.contrast,
+      sat: result.sat,
+      tone: result.tone,
+      toneLUT: result.toneLUT,
+      axes: result.axes,
+      lift: result.lift,
+      base: result.base,
+      baseReason: result.baseReason,
+      warnings: result.warnings || [],
+      baseHint: result.base
+    };
 
-    globalToneLUT = toneLUT;
-    globalColorSliders = colorSliders;
+    const finalRes = applyFujiOverlay(analysis, presetKey, strength01);
 
-    // 텍스트 구성
-    const pts = [0,64,128,192,255].map(x => `${x}->${toneLUT[x]}`);
-    const cTextInline = pts.join(" | ");
-    const cTextFull = pts.map(p=>{
-      const [x,y] = p.split("->");
-      return `   • Point ${x} -> ${y}`;
+    // compose 5pt curve (IN->OUT)
+    const pts = [0,64,128,192,255].map(x=>{
+      const y = finalRes.toneLUT[x];
+      return {x, y};
+    });
+
+    const curveInline = pts.map(p=>`IN ${p.x} → OUT ${p.y}`).join(" | ");
+    const curveMultiline = pts.map(p=>`IN ${p.x} → OUT ${p.y}`).join("\n");
+
+    const axesText = finalRes.axes.map(a=>{
+      const H = (a.canonH>0?`+${a.canonH}`:`${a.canonH}`);
+      const S = (a.canonS>0?`+${a.canonS}`:`${a.canonS}`);
+      const L = (a.canonL>0?`+${a.canonL}`:`${a.canonL}`);
+      return `${a.axis}: H${H}  S${S}  L${L}`;
     }).join("\n");
 
-    const colTextInline = colorSliders.map(c=>
-      `${c.label.split('(')[0]}: H${c.canonH>0?`+${c.canonH}`:c.canonH} S${c.canonS>0?`+${c.canonS}`:c.canonS} L${c.canonL>0?`+${c.canonL}`:c.canonL}`
-    ).join("\n");
+    const modeLabel = (userMode==="auto")
+      ? `AI 자동 (${ai.note})`
+      : `수동 (${userMode})`;
 
-    const colTextFull = colorSliders.map(c=>
-      `[ ${c.label} ]\n  색조(H): ${c.canonH>0?`+${c.canonH}`:c.canonH} | 채도(S): ${c.canonS>0?`+${c.canonS}`:c.canonS} | 명도(L): ${c.canonL>0?`+${c.canonL}`:c.canonL}`
-    ).join("\n\n");
+    const shotLabel = (shotMode==="one") ? "1장(타겟만)" : "2장(원본+타겟)";
 
-    const qpLabel = (qpMode==="quick") ? "Quick(1장: 중립 기준)" : "Pro(2장: 차이 기반)";
-    const modeLabel = (userMode==="auto") ? `AI 자동 (${aiType})` : `수동 (${userMode})`;
+    const presetLabel = (presetKey==="off")
+      ? "Fuji Overlay: OFF"
+      : `Fuji Overlay: ${FUJI_PRESETS[presetKey].name} (${Math.round(strength01*100)}%)`;
 
-    // 경고
-    const warnLines = (diagnostics?.warnings && diagnostics.warnings.length)
-      ? diagnostics.warnings.map((w,i)=>`${i+1}) ${w}`).join("\n")
-      : "";
-
+    // summary / full text
     summaryText =
-`[Canon Picture Style Recipe - SUMMARY]
-- Work: ${qpLabel}
-- Subject: ${modeLabel}
-1) Base: ${base}
-2) Contrast: ${contrast}
-3) ToneCurve(5pt): ${cTextInline}
-4) SpecificColors(6-axis):
-${colTextInline}`;
+`[Canon Picture Style Recipe - SUMMARY v9.0]
+- Shot: ${shotLabel}
+- Mode: ${modeLabel}
+- ${presetLabel}
+
+1) Base: ${finalRes.baseHint}
+2) Basic: Contrast ${finalRes.contrast}, Saturation ${finalRes.sat}, ColorTone ${finalRes.tone}
+3) ToneCurve(5pt, IN→OUT):
+${curveMultiline}
+4) Specific Colors(6-axis, H/S/L):
+${axesText}
+`;
+
+    const warnBlock = (finalRes.warnings && finalRes.warnings.length)
+      ? ("[ ⚠️ 경고/주의 ]\n" + finalRes.warnings.map((w,i)=>`${i+1}) ${w}`).join("\n") + "\n\n")
+      : "";
 
     fullText =
 `==================================================
- 📷 CANON PICTURE STYLE - RECIPE REPORT (v8.2)
+ 📷 CANON PICTURE STYLE - RECIPE REPORT (v9.0 FINAL)
 ==================================================
-* Work Mode: ${qpLabel}
-* Subject Mode: ${modeLabel}
-* Target: ${refFileState ? refFileState.name : "-"}
-* Original: ${origFileState ? origFileState.name : "(none)"}
-* Notes: ${qpMode==="quick" ? "Quick는 '대략값'입니다. 과하면 수치를 1~2단계씩 줄이세요." : "Pro는 오리지널↔타겟 차이 기반으로 더 정확합니다."}
+* Shot: ${shotLabel}
+* Mode: ${modeLabel}
+* ${presetLabel}
 
-${warnLines ? "[ ⚠️ 주의 ]\n" + warnLines + "\n\n" : ""}--------------------------------------------------
-[0. 추천 베이스]
-▶ Base: [ ${base} ]
-▶ 이유: ${reason}
+${warnBlock}[ 0) 추천 베이스 ]
+▶ Base: ${finalRes.baseHint}
+▶ Reason(분석): ${analysis.baseReason}
 
 --------------------------------------------------
-[1. 기본 설정 (Basic Settings)]
-▶ Contrast: ${contrast}
-▶ 블랙 리프트: ${isLifted ? `감지됨 (강도 ${Math.round(liftStrength*100)}%, +${liftPx}px)` : "약함/없음"}
-▶ 타겟 블랙(p02): ${Number(rP02).toFixed(1)}
+[ 1) Basic Settings ]
+▶ Contrast   : ${finalRes.contrast}
+▶ Saturation : ${finalRes.sat}
+▶ Color Tone : ${finalRes.tone}
+▶ Black Lift : ${finalRes.lift.isLifted ? "감지됨" : "약함/없음"} (강도 ${Math.round(finalRes.lift.strength*100)}%, +${finalRes.lift.liftPx}px)
 
 --------------------------------------------------
-[2. 톤 커브 좌표 (Luminance)]
-${cTextFull}
+[ 2) Tone Curve (IN → OUT) ]
+${pts.map(p=>`• IN ${p.x}  →  OUT ${p.y}`).join("\n")}
 
 --------------------------------------------------
-[3. 특정 색상 조정 (Six Color-Axes)]
-${colTextFull}
+[ 3) Specific Colors (6-axis H/S/L) ]
+${finalRes.axes.map(a=>{
+  const H = (a.canonH>0?`+${a.canonH}`:`${a.canonH}`);
+  const S = (a.canonS>0?`+${a.canonS}`:`${a.canonS}`);
+  const L = (a.canonL>0?`+${a.canonL}`:`${a.canonL}`);
+  return `[ ${a.axis} / ${a.label} ]  H:${H}  S:${S}  L:${L}`;
+}).join("\n")}
+
 ==================================================`;
 
-    // UI 반영
-    document.getElementById('sumMode').textContent = `${qpLabel} / ${modeLabel}`;
-    document.getElementById('sumBase').textContent = base;
-    document.getElementById('sumBase2').textContent = base;
+    // Render UI
+    document.getElementById("sumMode").textContent = `${shotLabel} / ${modeLabel}\n${presetLabel}`;
+    document.getElementById("sumBase").textContent = finalRes.baseHint;
+    document.getElementById("sumBase2").textContent = finalRes.baseHint;
 
-    document.getElementById('sumContrast').textContent = String(contrast);
-    document.getElementById('sumContrast2').textContent = String(contrast);
+    document.getElementById("sumBasic").textContent =
+      `Contrast ${finalRes.contrast} · Saturation ${finalRes.sat} · ColorTone ${finalRes.tone}`;
 
-    document.getElementById('sumLift').textContent = isLifted ? "감지됨 (영화룩)" : "없음";
-    document.getElementById('sumLift').className = "v " + (isLifted ? "warn" : "ok");
+    document.getElementById("sumLift").textContent = finalRes.lift.isLifted ? "감지됨" : "없음";
+    document.getElementById("sumLift").className = "v " + (finalRes.lift.isLifted ? "warn" : "ok");
 
-    document.getElementById('sumCurve').textContent = cTextInline.replace(/ \| /g, "\n");
-    document.getElementById('sumColors').textContent = colTextInline;
+    document.getElementById("sumCurve").textContent = curveMultiline;
+    document.getElementById("sumColors").textContent = axesText;
 
-    document.getElementById('reportBox').textContent = fullText;
+    document.getElementById("sumC2").textContent = String(finalRes.contrast);
+    document.getElementById("sumSat2").textContent = String(finalRes.sat);
+    document.getElementById("sumTone2").textContent = String(finalRes.tone);
 
-    document.getElementById('resultCard').style.display = "block";
+    document.getElementById("reportBox").textContent = fullText;
+
+    document.getElementById("resultCard").classList.remove("hide");
     setTab("sum");
-    document.getElementById('resultCard').scrollIntoView({ behavior:'smooth' });
-
-  } catch(e){
+    document.getElementById("resultCard").scrollIntoView({behavior:"smooth"});
+  }catch(e){
     console.error(e);
-    alert(
-      "오류가 발생했습니다.\n\n" +
-      (e?.message ? `- ${e.message}\n` : "") +
-      "- 이미지 파일이 손상되었거나\n- 브라우저가 Worker/ImageBitmap을 제한할 수 있습니다.\n\n" +
-      "다른 이미지로 다시 시도해 주세요."
-    );
-  } finally {
+    alert("분석 중 오류가 발생했습니다.\n- 이미지가 손상되었거나\n- 브라우저에서 Worker/ImageBitmap 제한이 있을 수 있습니다.\n다른 이미지로 재시도해 주세요.");
+  }finally{
     spin.style.display = "none";
     refreshReady();
-    btn.disabled = false;
   }
 }
 
-/* =========================
-   복사
-========================= */
+/* =========================================================
+   Copy
+========================================================= */
 async function copySummary(){
   if(!summaryText) return;
   try{
     await navigator.clipboard.writeText(summaryText);
     alert("요약을 복사했습니다!");
-  } catch(e){
-    const ta=document.createElement('textarea');
+  }catch(e){
+    const ta=document.createElement("textarea");
     ta.value=summaryText;
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    document.execCommand("copy");
     document.body.removeChild(ta);
     alert("요약을 복사했습니다!");
   }
 }
-
 async function copyFull(){
   if(!fullText) return;
   try{
     await navigator.clipboard.writeText(fullText);
     alert("전체 레시피를 복사했습니다!");
-  } catch(e){
-    const ta=document.createElement('textarea');
+  }catch(e){
+    const ta=document.createElement("textarea");
     ta.value=fullText;
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    document.execCommand("copy");
     document.body.removeChild(ta);
     alert("전체 레시피를 복사했습니다!");
   }
 }
 
-/* =========================
-   Init
-========================= */
+/* =========================================================
+   Boot
+========================================================= */
 window.onload = ()=>{
-  setupDropZone('dropOrig','origFile','thumbOrig','fileOrig', f=>origFileState=f);
-  setupDropZone('dropRef','refFile','thumbRef','fileRef', f=>refFileState=f);
+  setupDropZone("dropOrig","origFile","thumbOrig","fileOrig", f=>origFileState=f);
+  setupDropZone("dropRef","refFile","thumbRef","fileRef", f=>refFileState=f);
 
   initWorker();
-  loadAIModels();
+  updateStrengthLabel();
+  updatePresetLabel();
 
-  setTab('sum');
-  setQPMode('quick'); // 기본값: 초보자 친화 Quick
+  // default: 1장 모드
+  setShot("one");
+  setMode("auto");
+  setTab("sum");
+
+  // AI load
+  loadAIModels();
   refreshReady();
 };
 </script>
